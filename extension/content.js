@@ -236,7 +236,7 @@
 
     debug(`Started URL=${location.href}; readyState=${document.readyState}`);
 
-    if (/\/api\/files\/\d+\/download(?:[/?]|$)/i.test(location.pathname) || /\/download(?:[/?]|$)/i.test(location.pathname)) {
+    if (/\/api\/files\/\d+\/download(?:[/?]|$)/i.test(location.pathname)) {
       await handleDownloadPage();
       return;
     }
