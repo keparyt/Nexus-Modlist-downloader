@@ -238,7 +238,17 @@
 
       const button = findSlowDownload();
       if (button) {
-        if (clickSlow(button)) {
+        if (downloadMethod === 'manual-urlgrab') {
+          const componentUrl = component?.getAttribute('download-url') || '';
+          if (componentUrl) {
+            debug(`URL Grab found final download URL: ${componentUrl}`);
+            chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url: componentUrl }).catch(() => {});
+            chrome.runtime.sendMessage({ type: 'DOWNLOAD_CAPTURED' }).catch(() => {});
+            busy = false;
+            return;
+          }
+          debug('URL Grab: Slow Download is visible but download-url is not available yet');
+        } else if (clickSlow(button)) {
           debug('Slow Download click sent; notifying background');
           chrome.runtime.sendMessage({ type: 'DOWNLOAD_STARTED' }).catch(() => {});
           busy = false;
@@ -342,7 +352,7 @@
     busy = true;
     debug(`Content script loaded: ${location.href}; readyState=${document.readyState}`);
     const state = await new Promise(resolve => chrome.storage.local.get(KEY, data => resolve(data[KEY] || {})));
-    downloadMethod = state.downloadMethod === 'manual' ? 'manual' : 'vortex';
+    downloadMethod = ['vortex', 'manual', 'manual-urlgrab'].includes(state.downloadMethod) ? state.downloadMethod : 'vortex';
     debug(`Download method: ${downloadMethod}`);
 
     if (isDownloadUrl()) {
