@@ -6,7 +6,8 @@ const DEFAULT_STATE = {
   urls: [],
   tabId: null,
   log: [],
-  downloadWaiting: false
+  downloadWaiting: false,
+  downloadMethod: 'vortex'
 };
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -73,6 +74,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       state.tabId = null;
       state.log = [];
       state.downloadWaiting = false;
+      state.downloadMethod = message.downloadMethod === 'manual' ? 'manual' : 'vortex';
       await saveState(state);
       await log(state, `Queue started with ${urls.length} URL(s)`);
       await openNext();
@@ -96,11 +98,11 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
       const url = message.url;
       if (!url || !/^https:\/\/www\.nexusmods\.com\/api\/files\/\d+\/download(?:[/?]|$)/i.test(url)) {
-        await log(state, 'Rejected invalid Vortex download URL');
+        await log(state, `Rejected invalid ${state.downloadMethod === 'manual' ? 'Manual' : 'Vortex'} download URL`);
         return;
       }
 
-      await log(state, `Navigating queue tab to Vortex URL: ${url}`);
+      await log(state, `Navigating queue tab to ${state.downloadMethod === 'manual' ? 'Manual' : 'Vortex'} URL: ${url}`);
       try {
         await chrome.tabs.update(state.tabId, { url, active: true });
       } catch (error) {
