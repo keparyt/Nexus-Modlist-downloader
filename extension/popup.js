@@ -53,6 +53,7 @@ async function refresh() {
   }
 
   $('count').textContent = `${state.urls?.length || 0} URL(s)`;
+  $('captured').value = (state.capturedUrls || []).join('\n');
   $('log').textContent = (state.log || []).join('\n');
   $('log').scrollTop = $('log').scrollHeight;
 }
@@ -92,3 +93,12 @@ $('stop').onclick = async () => {
 
 refresh();
 setInterval(refresh, 500);
+
+$('copyCaptured').onclick = async () => {
+  const { nexusQueueState: state } = await chrome.storage.local.get('nexusQueueState');
+  const urls = (state?.capturedUrls || []).join('\n');
+  if (!urls) return;
+  await navigator.clipboard.writeText(urls);
+  $('copyCaptured').textContent = 'Copied';
+  setTimeout(() => $('copyCaptured').textContent = 'Copy captured URLs', 1200);
+};
