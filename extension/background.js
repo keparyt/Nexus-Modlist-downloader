@@ -114,21 +114,25 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     }
 
     if (message.type === 'CAPTURE_URL') {
-      if (!state.running || state.downloadMethod !== 'manual-urlgrab') return;
+      if (!state.running || state.downloadMethod !== 'manual-urlgrab' || state.downloadWaiting) return;
       const url = typeof message.url === 'string' ? message.url.trim() : '';
       if (!url || !/^(?:nxm:\/\/|https:\/\/)/i.test(url)) return;
-      if (!state.capturedUrls.includes(url)) state.capturedUrls.push(url);
-      await log(state, `Captured download URL ${state.capturedUrls.length}: ${url}`);
-      return;
-    }
 
-    if (message.type === 'DOWNLOAD_CAPTURED') {
-      if (!state.running || state.downloadMethod !== 'manual-urlgrab' || state.downloadWaiting) return;
+      // Capture and start the wait in the same state transaction. Previously
+      // CAPTURE_URL and DOWNLOAD_CAPTURED were separate messages, which could
+      // race and let the second handler save an older state over the captured URL.
+      if (!state.capturedUrls.includes(url)) {
+        state.capturedUrls.push(url);
+      }
+
       state.downloadWaiting = true;
+      await log(state, `Captured download URL ${state.capturedUrls.length}: ${url}`);
       await log(state, `URL captured; waiting 10 seconds before next URL (${state.capturedUrls.length} captured)`);
+
       await sleep(10000);
       const latest = await getState();
       if (!latest.running || !latest.downloadWaiting || latest.downloadMethod !== 'manual-urlgrab') return;
+
       latest.downloadWaiting = false;
       latest.index += 1;
       await saveState(latest);
