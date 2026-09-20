@@ -11,13 +11,19 @@
     <header>
       <div>
         <h1>Nexus Modlist Downloader</h1>
-        <p>Sequential Vortex download automation</p>
+        <p>Sequential Nexus download automation</p>
       </div>
       <span id="count">0 URL(s)</span>
     </header>
 
     <label for="list">Mod list</label>
     <textarea id="list" spellcheck="false" placeholder='["https://www.nexusmods.com/game/mods/123"]'></textarea>
+
+    <label for="method">Download method</label>
+    <select id="method">
+      <option value="vortex">Vortex</option>
+      <option value="manual">Manual</option>
+    </select>
 
     <div class="row">
       <button id="load" class="secondary">Load example</button>
