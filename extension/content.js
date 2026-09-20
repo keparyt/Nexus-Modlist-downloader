@@ -307,7 +307,7 @@
       scans++;
       const modals = [...document.querySelectorAll('mod-download-modal')];
 
-      if (downloadMethod === 'manual' && !manualClicked) {
+      if (['manual', 'manual-urlgrab', 'gateway'].includes(downloadMethod) && !manualClicked) {
         const manualButton = findManualAction();
         if (manualButton) {
           debug('Manual option found next to the Vortex option; clicking it');
@@ -320,18 +320,18 @@
 
       const usable = modals.map((modal, index) => ({
         modal, index, file: parseFile(modal)
-      })).filter(x => downloadMethod === 'manual'
+      })).filter(x => ['manual', 'manual-urlgrab', 'gateway'].includes(downloadMethod)
         ? x.file?.downloadUrl
         : x.file?.vortexDownloadUrl);
 
       if (usable.length) {
         const selected = usable[0];
-        const url = downloadMethod === 'manual'
+        const url = ['manual', 'manual-urlgrab', 'gateway'].includes(downloadMethod)
           ? selected.file.downloadUrl
           : selected.file.vortexDownloadUrl;
 
-        debug(`Exact ${downloadMethod === 'manual' ? 'Manual' : 'Vortex'} URL available: ${url}`);
-        debug(`Sending ${downloadMethod === 'manual' ? 'Manual' : 'Vortex'} URL to background for queue-tab navigation`);
+        debug(`Exact ${['manual', 'manual-urlgrab', 'gateway'].includes(downloadMethod) ? 'Manual' : 'Vortex'} URL available: ${url}`);
+        debug(`Sending ${['manual', 'manual-urlgrab', 'gateway'].includes(downloadMethod) ? 'Manual' : 'Vortex'} URL to background for queue-tab navigation`);
         chrome.runtime.sendMessage({
           type: 'NAVIGATE_DOWNLOAD',
           url,
