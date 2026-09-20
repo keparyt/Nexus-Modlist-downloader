@@ -23,7 +23,7 @@
     <select id="method">
       <option value="vortex">Vortex</option>
       <option value="manual">Manual</option>
-      <option value="manual-urlgrab">Manual (URL Grab)</option>
+      <option value="manual-urlgrab">Manual (URL Grab)</option>\n      <option value="gateway">Gateway</option>
     </select>
 
     <div class="row">
@@ -32,9 +32,9 @@
       <button id="stop" class="danger">Stop</button>
     </div>
 
-    <div id="status">Idle</div>
+    <label for="gatewayUrl">Gateway URL</label>\n    <input id="gatewayUrl" type="text" value="http://127.0.0.1:8765" spellcheck="false">\n\n    <div id="status">Idle</div>
     <label for="captured">Captured URLs</label>
-    <textarea id="captured" readonly placeholder="Captured URLs will appear here after the queue finishes."></textarea>
+    <textarea id="captured" readonly placeholder="Captured URLs are also sent to Gateway when Gateway mode is selected."></textarea>
     <div class="row">
       <button id="copyCaptured" class="secondary">Copy captured URLs</button>
     </div>
