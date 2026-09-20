@@ -3,6 +3,7 @@
 
   const KEY = 'nexusQueueState';
   let busy = false;
+  let downloadMode = false;
   const norm = s => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -12,179 +13,158 @@
     chrome.runtime.sendMessage({ type: 'STEP_LOG', text: message }).catch(() => {});
   };
 
-  const visible = el => {
-    if (!el) return false;
-    try {
-      const s = getComputedStyle(el);
-      const r = el.getBoundingClientRect();
-      return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' &&
-        r.width > 0 && r.height > 0;
-    } catch { return false; }
-  };
+  const isDownloadUrl = () =>
+    /\/api\/files\/\d+\/download(?:[/?]|$)/i.test(location.pathname) ||
+    /^nxm:\/\//i.test(location.href);
 
   const parseFile = modal => {
     const raw = modal?.getAttribute('file');
     if (!raw) return null;
     try { return JSON.parse(raw); }
     catch (e) {
-      debug(`mod-download-modal file JSON parse failed: ${e.message}`);
+      debug(`mod-download-modal JSON parse failed: ${e.message}`);
       return null;
     }
   };
 
-  function collectRoots(start) {
-    const result = [];
-    const seen = new Set();
+  const isVisible = el => {
+    try {
+      const s = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      return s.display !== 'none' && s.visibility !== 'hidden' &&
+        s.opacity !== '0' && r.width > 0 && r.height > 0;
+    } catch { return false; }
+  };
 
-    const walk = (root, path) => {
-      if (!root || seen.has(root)) return;
-      seen.add(root);
-      result.push({ root, path });
+  function allRoots(root = document, path = 'document', out = [], seen = new Set()) {
+    if (!root || seen.has(root)) return out;
+    seen.add(root);
+    out.push({ root, path });
 
-      let nodes = [];
-      try { nodes = [...root.querySelectorAll('*')]; } catch {}
-      for (const node of nodes) {
-        if (node.shadowRoot) {
-          walk(node.shadowRoot, path + ' > ' + node.tagName.toLowerCase() + '::shadow');
-        }
-      }
-    };
-
-    walk(start, start === document ? 'document' : 'component');
-    return result;
+    let nodes = [];
+    try { nodes = [...root.querySelectorAll('*')]; } catch {}
+    for (const node of nodes) {
+      try {
+        if (node.shadowRoot) allRoots(node.shadowRoot, path + ' > ' + node.tagName.toLowerCase() + '::shadow', out, seen);
+      } catch {}
+    }
+    return out;
   }
 
-  const findUsableModal = () => {
-    const modals = [...document.querySelectorAll('mod-download-modal')];
-    const usable = modals.map((modal, index) => ({
-      modal, index, file: parseFile(modal)
-    })).filter(x =>
-      x.file?.vortexDownloadUrl &&
-      x.modal.getAttribute('show-vortex-button') !== 'false'
-    );
+  const describe = el => {
+    const parts = [
+      el.tagName,
+      el.id && '#' + el.id,
+      el.getAttribute('class'),
+      el.getAttribute('part'),
+      el.getAttribute('aria-label'),
+      el.getAttribute('title'),
+      el.getAttribute('data-testid'),
+      el.getAttribute('data-action'),
+      el.getAttribute('value'),
+      el.textContent
+    ].filter(Boolean).map(String);
+    return norm(parts.join(' '));
+  };
 
-    debug(`mod-download-modal count=${modals.length}; usable=${usable.length}`);
-
-    if (!usable.length) return null;
-
-    const selected = usable[0];
-    debug(`Selected modal #${selected.index}: name="${selected.file.name || ''}" uid=${selected.file.uid || ''}`);
-    debug(`available: ${selected.file.vortexDownloadUrl}`);
-    return selected;
+  const slowMatch = el => {
+    const s = describe(el);
+    return s.includes('slow download') || s.includes('slow_download') ||
+      s.includes('slow-download');
   };
 
   const findSlowDownload = () => {
     const component = document.querySelector('mod-file-download');
-
     if (!component) return null;
 
-    const roots = collectRoots(component);
+    const roots = allRoots(component, 'mod-file-download');
     const selectors = [
-      '#upsell-cards button',
-      '#upsell-cards a',
-      '#upsell-cards [role="button"]',
-      'button',
-      'a',
-      '[role="button"]',
-      '[part]'
+      'button', 'a', '[role="button"]', '[part]', '[data-testid]',
+      'input[type="button"]', 'input[type="submit"]'
     ];
-
-    const candidates = [];
-    const seen = new Set();
 
     for (const { root, path } of roots) {
       for (const selector of selectors) {
-        let elements = [];
-        try { elements = [...root.querySelectorAll(selector)]; } catch {}
-
-        for (const el of elements) {
-          if (seen.has(el)) continue;
-          seen.add(el);
-          if (!visible(el)) continue;
-
-          const text = norm(el.textContent);
-          const aria = norm(el.getAttribute('aria-label'));
-          const title = norm(el.getAttribute('title'));
-          const value = norm(el.getAttribute('value'));
-          const dataAction = norm(el.getAttribute('data-action'));
-
-          if (text.includes('slow download') ||
-              aria.includes('slow download') ||
-              title.includes('slow download') ||
-              value.includes('slow download') ||
-              dataAction.includes('slow download')) {
-            candidates.push({ el, path, score: (text === 'slow download' ? 100 : 0) });
+        let els = [];
+        try { els = [...root.querySelectorAll(selector)]; } catch {}
+        for (const el of els) {
+          if (isVisible(el) && slowMatch(el)) {
+            debug(`FOUND Slow Download in ${path}: <${el.tagName.toLowerCase()}> id="${el.id || ''}" part="${el.getAttribute('part') || ''}" text="${norm(el.textContent).slice(0,160)}"`);
+            return el;
           }
+        }
+      }
+
+      // Also inspect custom elements themselves because Nexus may expose the
+      // CTA as another web component rather than a native button.
+      let els = [];
+      try { els = [...root.querySelectorAll('*')]; } catch {}
+      for (const el of els) {
+        if (isVisible(el) && slowMatch(el)) {
+          debug(`FOUND Slow Download custom candidate in ${path}: <${el.tagName.toLowerCase()}> text="${norm(el.textContent).slice(0,160)}"`);
+          return el;
         }
       }
     }
 
-    candidates.sort((a, b) => b.score - a.score);
-
-    if (candidates[0]) {
-      debug(`Slow download candidate found in ${candidates[0].path}: tag=<${candidates[0].el.tagName.toLowerCase()}> text="${norm(candidates[0].el.textContent).slice(0,150)}"`);
-      return candidates[0].el;
-    }
-
-    // Log the component's rendered text once it exists. This is useful when
-    // Nexus changes the internal CTA markup.
-    const componentText = norm(component.textContent);
-    if (componentText.includes('slow download')) {
-      debug('Slow download text exists inside <mod-file-download>, but its control is not yet exposed by the component DOM');
+    const componentDesc = describe(component);
+    if (componentDesc.includes('slow download') || componentDesc.includes('slow_download')) {
+      debug('Slow Download is present in mod-file-download content but no clickable descendant was exposed');
     }
 
     return null;
   };
 
-  const clickNative = (el, label) => {
-    try {
-      el.scrollIntoView({ block: 'center', behavior: 'instant' });
-    } catch {}
+  const clickSlow = el => {
+    debug('Attempting Slow Download click');
+    try { el.scrollIntoView({ block: 'center', inline: 'center' }); } catch {}
+    try { el.focus?.(); } catch {}
 
-    try {
-      el.focus?.({ preventScroll: true });
-    } catch {}
-
-    try {
-      el.click();
-      debug(`${label}: native click dispatched`);
-      return true;
-    } catch (e) {
-      debug(`${label}: native click failed: ${e.message}`);
+    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+      try {
+        el.dispatchEvent(new MouseEvent(type, {
+          bubbles: true, cancelable: true, composed: true, view: window,
+          buttons: type === 'mousedown' || type === 'mouseup' ? 1 : 0
+        }));
+      } catch {}
     }
 
     try {
-      el.dispatchEvent(new MouseEvent('click', {
-        bubbles: true, cancelable: true, composed: true, view: window
-      }));
-      debug(`${label}: composed click fallback dispatched`);
+      el.click();
+      debug('Slow Download .click() completed');
       return true;
     } catch (e) {
-      debug(`${label}: click fallback failed: ${e.message}`);
+      debug(`Slow Download .click() failed: ${e.message}`);
       return false;
     }
   };
 
   async function handleDownloadPage() {
-    debug(`Download page detected: ${location.href}`);
+    downloadMode = true;
+    debug(`DOWNLOAD MODE: ${location.href}`);
 
     const started = Date.now();
+    let lastSignature = '';
     let scans = 0;
 
-    while (Date.now() - started < 60000) {
+    while (Date.now() - started < 90000) {
       scans++;
       const component = document.querySelector('mod-file-download');
 
-      if (component && scans === 1) {
-        debug(`<mod-file-download> found: filename="${component.getAttribute('filename') || ''}" file-id="${component.getAttribute('file-id') || ''}" is-nmm-download="${component.getAttribute('is-nmm-download') || ''}"`);
-        debug(`download-url="${component.getAttribute('download-url') || ''}"`);
+      if (component && !lastSignature) {
+        lastSignature = [
+          component.getAttribute('filename'),
+          component.getAttribute('file-id'),
+          component.getAttribute('is-nmm-download'),
+          component.getAttribute('download-url')
+        ].join('|');
+        debug(`mod-file-download found: ${lastSignature}`);
       }
 
       const button = findSlowDownload();
-
       if (button) {
-        if (clickNative(button, 'Slow download')) {
-          debug('Slow download clicked; notifying background');
+        if (clickSlow(button)) {
+          debug('Slow Download click sent; waiting for downloadStarted/download state');
           chrome.runtime.sendMessage({ type: 'DOWNLOAD_STARTED' }).catch(() => {});
           busy = false;
           return;
@@ -192,12 +172,12 @@
       }
 
       if (scans === 1 || scans % 10 === 0)
-        debug(`Slow download scan=${scans}; mod-file-download=${!!component}; waiting for rendered CTA`);
+        debug(`Slow Download scan=${scans}; component=${!!component}; url=${location.href}`);
 
       await sleep(500);
     }
 
-    debug('TIMEOUT: Slow download after 60 seconds');
+    debug('TIMEOUT: Slow Download was not exposed after 90 seconds');
     busy = false;
   }
 
@@ -207,22 +187,25 @@
 
     const started = Date.now();
     let scans = 0;
-
     while (Date.now() - started < 45000) {
       scans++;
-      const selected = findUsableModal();
+      const modals = [...document.querySelectorAll('mod-download-modal')];
+      const usable = modals.map((modal, index) => ({
+        modal, index, file: parseFile(modal)
+      })).filter(x => x.file?.vortexDownloadUrl);
 
-      if (selected) {
-        const vortexUrl = selected.file.vortexDownloadUrl;
-        debug(`Exact Vortex URL available: ${vortexUrl}`);
-        debug('Requesting queue tab navigation to the exact Vortex API URL');
-        chrome.runtime.sendMessage({ type: 'NAVIGATE_DOWNLOAD', url: vortexUrl }).catch(e => debug(`Navigation request failed: ${e.message}`));
+      if (usable.length) {
+        const selected = usable[0];
+        const url = selected.file.vortexDownloadUrl;
+        debug(`Exact Vortex URL available: ${url}`);
+        debug('Sending Vortex URL to background for queue-tab navigation');
+        chrome.runtime.sendMessage({ type: 'NAVIGATE_DOWNLOAD', url }).catch(e =>
+          debug(`Navigation request failed: ${e.message}`));
         return;
       }
 
       if (scans === 1 || scans % 10 === 0)
-        debug(`mod-download-modal scan=${scans}; waiting for file data`);
-
+        debug(`mod-download-modal scan=${scans}; usable=${usable.length}`);
       await sleep(500);
     }
 
@@ -233,10 +216,9 @@
   async function run() {
     if (busy) return;
     busy = true;
+    debug(`Content script loaded: ${location.href}; readyState=${document.readyState}`);
 
-    debug(`Started URL=${location.href}; readyState=${document.readyState}`);
-
-    if (/\/api\/files\/\d+\/download(?:[/?]|$)/i.test(location.pathname)) {
+    if (isDownloadUrl()) {
       await handleDownloadPage();
       return;
     }
@@ -244,10 +226,14 @@
     await handleModPage();
   }
 
-  debug('Content script loaded');
+  debug('Content script initialized');
 
   chrome.storage.local.get(KEY, ({ nexusQueueState: state }) => {
-    debug(`Queue running=${!!state?.running}, index=${state?.index ?? 'n/a'}, total=${state?.urls?.length ?? 0}`);
-    if (state?.running) run();
+    if (!state?.running) {
+      debug('Queue not running');
+      return;
+    }
+    debug(`Queue running: index=${state.index}; total=${state.urls?.length || 0}`);
+    run();
   });
 })();
