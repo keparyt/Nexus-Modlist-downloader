@@ -139,32 +139,29 @@
     }
   };
 
-  async function handleDownloadPage() {
+  async function handleDownloadPage(reason = 'detected') {
+    if (downloadMode) return;
     downloadMode = true;
-    debug(`DOWNLOAD MODE: ${location.href}`);
+    debug(`DOWNLOAD MODE (${reason}): ${location.href}`);
 
     const started = Date.now();
-    let lastSignature = '';
     let scans = 0;
+    let loggedComponent = false;
 
     while (Date.now() - started < 90000) {
       scans++;
       const component = document.querySelector('mod-file-download');
 
-      if (component && !lastSignature) {
-        lastSignature = [
-          component.getAttribute('filename'),
-          component.getAttribute('file-id'),
-          component.getAttribute('is-nmm-download'),
-          component.getAttribute('download-url')
-        ].join('|');
-        debug(`mod-file-download found: ${lastSignature}`);
+      if (component && !loggedComponent) {
+        loggedComponent = true;
+        debug(`mod-file-download found: filename="${component.getAttribute('filename') || ''}" file-id="${component.getAttribute('file-id') || ''}" is-nmm-download="${component.getAttribute('is-nmm-download') || ''}"`);
+        debug(`download-url="${component.getAttribute('download-url') || ''}"`);
       }
 
       const button = findSlowDownload();
       if (button) {
         if (clickSlow(button)) {
-          debug('Slow Download click sent; waiting for downloadStarted/download state');
+          debug('Slow Download click sent; notifying background');
           chrome.runtime.sendMessage({ type: 'DOWNLOAD_STARTED' }).catch(() => {});
           busy = false;
           return;
@@ -179,6 +176,33 @@
 
     debug('TIMEOUT: Slow Download was not exposed after 90 seconds');
     busy = false;
+  }
+
+  function watchForDownloadComponent() {
+    const check = () => {
+      if (!busy || downloadMode) return;
+      const component = document.querySelector('mod-file-download');
+      if (component) {
+        debug('Detected <mod-file-download> dynamically; switching from mod-page handling to DOWNLOAD MODE');
+        handleDownloadPage('dynamic component detected');
+      }
+    };
+
+    try {
+      const observer = new MutationObserver(check);
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+      check();
+    } catch (e) {
+      debug(`MutationObserver unavailable: ${e.message}`);
+    }
+
+    const interval = setInterval(() => {
+      if (!busy || downloadMode) {
+        clearInterval(interval);
+        return;
+      }
+      check();
+    }, 250);
   }
 
   async function handleModPage() {
@@ -219,10 +243,19 @@
     debug(`Content script loaded: ${location.href}; readyState=${document.readyState}`);
 
     if (isDownloadUrl()) {
-      await handleDownloadPage();
+      await handleDownloadPage('URL detected');
       return;
     }
 
+    // Nexus can redirect the API request into a download UI without changing
+    // the visible pathname. Detect the actual <mod-file-download> component
+    // instead of relying on the URL.
+    if (document.querySelector('mod-file-download')) {
+      await handleDownloadPage('component already present');
+      return;
+    }
+
+    watchForDownloadComponent();
     await handleModPage();
   }
 
