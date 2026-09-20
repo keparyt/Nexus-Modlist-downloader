@@ -4,6 +4,7 @@
   const KEY = 'nexusQueueState';
   let busy = false;
   let downloadMode = false;
+  let downloadMethod = 'vortex';
   const norm = s => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -89,6 +90,45 @@
       s.includes('slow-download');
   };
 
+  const findActionInModal = (modal, matcher) => {
+    if (!modal) return null;
+    const roots = allRoots(modal, 'mod-download-modal');
+    const selectors = [
+      'button', 'a', '[role="button"]', '[part]', '[data-testid]',
+      'input[type="button"]', 'input[type="submit"]'
+    ];
+
+    for (const { root, path } of roots) {
+      for (const selector of selectors) {
+        let els = [];
+        try { els = [...root.querySelectorAll(selector)]; } catch {}
+        for (const el of els) {
+          if (isVisible(el) && matcher(el)) {
+            debug(`FOUND ${downloadMethod === 'manual' ? 'Manual' : 'Vortex'} action in ${path}: <${el.tagName.toLowerCase()}> text="${norm(el.textContent).slice(0,160)}"`);
+            return el;
+          }
+        }
+      }
+      let els = [];
+      try { els = [...root.querySelectorAll('*')]; } catch {}
+      for (const el of els) {
+        if (isVisible(el) && matcher(el)) {
+          debug(`FOUND ${downloadMethod === 'manual' ? 'Manual' : 'Vortex'} custom action in ${path}: <${el.tagName.toLowerCase()}> text="${norm(el.textContent).slice(0,160)}"`);
+          return el;
+        }
+      }
+    }
+    return null;
+  };
+
+  const manualMatch = el => {
+    const s = describe(el);
+    return s === 'manual' || s.includes(' manual ') || s.startsWith('manual ') ||
+      s.endsWith(' manual') || s.includes('manual download');
+  };
+
+  const findManualAction = () => findActionInModal(document.querySelector('mod-download-modal'), manualMatch);
+
   const findSlowDownload = () => {
     const component = document.querySelector('mod-file-download');
     if (!component) return null;
@@ -129,6 +169,28 @@
     }
 
     return null;
+  };
+
+  const clickAction = el => {
+    debug('Attempting action click');
+    try { el.scrollIntoView({ block: 'center', inline: 'center' }); } catch {}
+    try { el.focus?.(); } catch {}
+    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+      try {
+        el.dispatchEvent(new MouseEvent(type, {
+          bubbles: true, cancelable: true, composed: true, view: window,
+          buttons: type === 'mousedown' || type === 'mouseup' ? 1 : 0
+        }));
+      } catch {}
+    }
+    try {
+      el.click();
+      debug('Action .click() completed');
+      return true;
+    } catch (e) {
+      debug(`Action .click() failed: ${e.message}`);
+      return false;
+    }
   };
 
   const clickSlow = el => {
@@ -227,29 +289,51 @@
 
     const started = Date.now();
     let scans = 0;
+    let manualClicked = false;
+
     while (Date.now() - started < 45000) {
       scans++;
       const modals = [...document.querySelectorAll('mod-download-modal')];
+
+      if (downloadMethod === 'manual' && !manualClicked) {
+        const manualButton = findManualAction();
+        if (manualButton) {
+          debug('Manual option found next to the Vortex option; clicking it');
+          clickAction(manualButton);
+          manualClicked = true;
+          await sleep(500);
+          continue;
+        }
+      }
+
       const usable = modals.map((modal, index) => ({
         modal, index, file: parseFile(modal)
-      })).filter(x => x.file?.vortexDownloadUrl);
+      })).filter(x => downloadMethod === 'manual'
+        ? x.file?.downloadUrl
+        : x.file?.vortexDownloadUrl);
 
       if (usable.length) {
         const selected = usable[0];
-        const url = selected.file.vortexDownloadUrl;
-        debug(`Exact Vortex URL available: ${url}`);
-        debug('Sending Vortex URL to background for queue-tab navigation');
-        chrome.runtime.sendMessage({ type: 'NAVIGATE_DOWNLOAD', url }).catch(e =>
-          debug(`Navigation request failed: ${e.message}`));
+        const url = downloadMethod === 'manual'
+          ? selected.file.downloadUrl
+          : selected.file.vortexDownloadUrl;
+
+        debug(`Exact ${downloadMethod === 'manual' ? 'Manual' : 'Vortex'} URL available: ${url}`);
+        debug(`Sending ${downloadMethod === 'manual' ? 'Manual' : 'Vortex'} URL to background for queue-tab navigation`);
+        chrome.runtime.sendMessage({
+          type: 'NAVIGATE_DOWNLOAD',
+          url,
+          method: downloadMethod
+        }).catch(e => debug(`Navigation request failed: ${e.message}`));
         return;
       }
 
       if (scans === 1 || scans % 10 === 0)
-        debug(`mod-download-modal scan=${scans}; usable=${usable.length}`);
+        debug(`mod-download-modal scan=${scans}; method=${downloadMethod}; usable=${usable.length}; manualClicked=${manualClicked}`);
       await sleep(500);
     }
 
-    debug('TIMEOUT: usable mod-download-modal after 45 seconds');
+    debug(`TIMEOUT: usable ${downloadMethod === 'manual' ? 'Manual' : 'Vortex'} URL after 45 seconds`);
     busy = false;
   }
 
@@ -257,6 +341,9 @@
     if (busy) return;
     busy = true;
     debug(`Content script loaded: ${location.href}; readyState=${document.readyState}`);
+    const state = await new Promise(resolve => chrome.storage.local.get(KEY, data => resolve(data[KEY] || {})));
+    downloadMethod = state.downloadMethod === 'manual' ? 'manual' : 'vortex';
+    debug(`Download method: ${downloadMethod}`);
 
     if (isDownloadUrl()) {
       await handleDownloadPage('URL detected');
