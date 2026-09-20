@@ -215,8 +215,8 @@
       if (selected) {
         const vortexUrl = selected.file.vortexDownloadUrl;
         debug(`Exact Vortex URL available: ${vortexUrl}`);
-        debug('Navigating directly to the exact Vortex API URL exposed by mod-download-modal');
-        location.assign(vortexUrl);
+        debug('Requesting queue tab navigation to the exact Vortex API URL');
+        chrome.runtime.sendMessage({ type: 'NAVIGATE_DOWNLOAD', url: vortexUrl }).catch(e => debug(`Navigation request failed: ${e.message}`));
         return;
       }
 
@@ -236,7 +236,7 @@
 
     debug(`Started URL=${location.href}; readyState=${document.readyState}`);
 
-    if (/\/download(?:[/?]|$)/i.test(location.pathname)) {
+    if (/\/api\/files\/\d+\/download(?:[/?]|$)/i.test(location.pathname) || /\/download(?:[/?]|$)/i.test(location.pathname)) {
       await handleDownloadPage();
       return;
     }
