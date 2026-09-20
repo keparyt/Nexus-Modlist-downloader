@@ -8,7 +8,8 @@ const DEFAULT_STATE = {
   log: [],
   downloadWaiting: false,
   downloadMethod: 'vortex',
-  capturedUrls: []
+  capturedUrls: [],
+  gatewayUrl: 'http://127.0.0.1:8765'
 };
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -25,6 +26,27 @@ async function saveState(state) {
 async function log(state, message) {
   state.log = [...(state.log || []), new Date().toLocaleTimeString() + ' ' + message].slice(-150);
   await saveState(state);
+}
+
+async function sendToGateway(url, state) {
+  const base = String(state.gatewayUrl || DEFAULT_STATE.gatewayUrl).replace(/\\/+$/, '');
+  try {
+    const response = await fetch(base + '/api/url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) {
+      await log(state, `Gateway rejected URL: ${data.error || response.statusText}`);
+      return false;
+    }
+    await log(state, `Sent URL to gateway: ${url}`);
+    return true;
+  } catch (error) {
+    await log(state, `Gateway unavailable at ${base}: ${error.message}`);
+    return false;
+  }
 }
 
 async function openNext() {
@@ -75,8 +97,11 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       state.tabId = null;
       state.log = [];
       state.downloadWaiting = false;
-      state.downloadMethod = ['vortex', 'manual', 'manual-urlgrab'].includes(message.downloadMethod) ? message.downloadMethod : 'vortex';
+      state.downloadMethod = ['vortex', 'manual', 'manual-urlgrab', 'gateway'].includes(message.downloadMethod) ? message.downloadMethod : 'vortex';
       state.capturedUrls = [];
+      state.gatewayUrl = typeof message.gatewayUrl === 'string' && message.gatewayUrl.trim()
+        ? message.gatewayUrl.trim().replace(/\\/+$/, '')
+        : DEFAULT_STATE.gatewayUrl;
       await saveState(state);
       await log(state, `Queue started with ${urls.length} URL(s)`);
       await openNext();
@@ -127,6 +152,9 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
       state.downloadWaiting = true;
       await log(state, `Captured download URL ${state.capturedUrls.length}: ${url}`);
+      if (state.downloadMethod === 'gateway') {
+        await sendToGateway(url, state);
+      }
       await log(state, `URL captured; waiting 10 seconds before next URL (${state.capturedUrls.length} captured)`);
 
       await sleep(10000);
