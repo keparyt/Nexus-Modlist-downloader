@@ -16,30 +16,19 @@
     console.debug('[Nexus Modlist Downloader]', message);
     chrome.runtime.sendMessage({ type: 'STEP_LOG', text: message });
   };
-  const describe = el => el ? `${el.tagName.toLowerCase()} text="${norm(el.textContent).slice(0, 120)}" href="${el.href || ''}"` : 'none';
+  const describe = el => el ? `${el.tagName.toLowerCase()} class="${el.className || ''}" text="${norm(el.textContent).slice(0, 120)}" href="${el.href || ''}"` : 'none';
 
   const findVortex = () => {
-    const elements = [...document.querySelectorAll('button, a, span, [role="button"]')];
+    const elements = [...document.querySelectorAll('.nxm-button.nxm-button-flamework')];
     const candidates = elements.filter(el => {
+      if (!isVisible(el)) return false;
       const text = norm(el.textContent);
       const aria = norm(el.getAttribute('aria-label'));
       const title = norm(el.getAttribute('title'));
-      const href = el.href || '';
-      if (!isVisible(el)) return false;
-      if (href.endsWith('/vortex') || text === 'discover vortex' || text.includes('discover vortex')) return false;
       return text === 'vortex' || aria === 'vortex' || title === 'vortex' ||
-        text.includes('vortex') && !text.includes('discover');
+        (text.includes('vortex') && !text.includes('discover'));
     });
-    candidates.sort((a, b) => {
-      const score = el => {
-        const text = norm(el.textContent);
-        const tag = el.tagName.toLowerCase();
-        return (text === 'vortex' ? 100 : 0) + (tag === 'button' ? 30 : 0) +
-          (el.getAttribute('role') === 'button' ? 20 : 0) + (tag === 'a' ? 0 : 10);
-      };
-      return score(b) - score(a);
-    });
-    debug(`Vortex visible candidates=${candidates.length}; selected=${describe(candidates[0])}`);
+    debug(`Vortex class candidates=${candidates.length}; all matching elements=${elements.length}; selected=${describe(candidates[0])}`);
     return candidates[0] || null;
   };
 
@@ -53,6 +42,7 @@
       if (scans === 1 || scans % 5 === 0) debug(`${label}: scan=${scans}; candidate=${describe(el)}`);
       if (el) {
         el.scrollIntoView({ block: 'center', behavior: 'instant' });
+        if (el.tagName.toLowerCase() === 'span') el = el.closest('button, a, [role="button"]') || el;
         ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(type =>
           el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }))
         );
