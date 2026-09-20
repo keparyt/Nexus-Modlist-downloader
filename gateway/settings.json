@@ -1,0 +1,11 @@
+{
+  "host": "127.0.0.1",
+  "port": 8765,
+  "download_folder": "downloads",
+  "auto_download": true,
+  "overwrite_existing": false,
+  "save_history": true,
+  "max_queue_size": 1000,
+  "request_timeout": 120,
+  "user_agent": "Nexus-Modlist-Downloader-Gateway/1.0"
+}
