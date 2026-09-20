@@ -27,7 +27,6 @@ async function log(state, message) {
 
 async function openNext() {
   const state = await getState();
-
   if (!state.running) return;
 
   if (state.index >= state.urls.length) {
@@ -46,7 +45,7 @@ async function openNext() {
       await chrome.tabs.update(state.tabId, { url, active: true });
       return;
     } catch (error) {
-      await log(state, `Existing tab unavailable: ${error.message}`);
+      await log(state, `Existing queue tab unavailable: ${error.message}`);
       state.tabId = null;
     }
   }
@@ -60,16 +59,20 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   (async () => {
     const state = await getState();
 
+    // Only the tab currently owned by the queue can advance or log the queue.
+    if (message.type !== 'START' && message.type !== 'STOP' &&
+        sender.tab?.id && state.tabId && sender.tab.id !== state.tabId) {
+      return;
+    }
+
     if (message.type === 'START') {
       const urls = [...new Set(message.urls || [])];
-
       state.urls = urls;
       state.index = 0;
       state.running = urls.length > 0;
       state.tabId = null;
       state.log = [];
       state.downloadWaiting = false;
-
       await saveState(state);
       await log(state, `Queue started with ${urls.length} URL(s)`);
       await openNext();
@@ -93,14 +96,10 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
       state.downloadWaiting = true;
       await log(state, 'Slow download clicked; waiting 10 seconds before next URL');
-
       await sleep(10000);
 
       const latest = await getState();
-      if (!latest.running || !latest.downloadWaiting) {
-        await log(latest, '10-second wait ended, but queue is no longer active');
-        return;
-      }
+      if (!latest.running || !latest.downloadWaiting) return;
 
       latest.downloadWaiting = false;
       latest.index += 1;
@@ -116,7 +115,6 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
 chrome.tabs.onRemoved.addListener(async tabId => {
   const state = await getState();
-
   if (state.tabId === tabId && state.running) {
     state.tabId = null;
     await log(state, 'Queue tab was closed; queue remains paused');
