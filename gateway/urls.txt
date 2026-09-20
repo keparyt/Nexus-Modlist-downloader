@@ -1,0 +1,3 @@
+# One Nexus nxm:// download URL per line.
+# Example:
+# nxm://supermarkettogether/mods/95/files/221?key=YOUR_KEY&expires=YOUR_EXPIRY&user_id=YOUR_USER_ID
