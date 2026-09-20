@@ -1,3 +1,34 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>Nexus Queue</title><link rel="stylesheet" href="popup.css"></head>
-<body><main><h1>Nexus Queue</h1><p>Paste a JSON array or one Nexus URL per line.</p><textarea id="list" placeholder='["https://www.nexusmods.com/game/mods/123"]'></textarea><div class="row"><button id="load">Load example</button><button id="start">Start</button><button id="stop">Stop</button></div><div id="status">Idle</div><pre id="log"></pre></main><script src="popup.js"></script></body></html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Nexus Modlist Downloader</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Nexus Modlist Downloader</h1>
+        <p>Sequential Vortex download automation</p>
+      </div>
+      <span id="count">0 URL(s)</span>
+    </header>
+
+    <label for="list">Mod list</label>
+    <textarea id="list" spellcheck="false" placeholder='["https://www.nexusmods.com/game/mods/123"]'></textarea>
+
+    <div class="row">
+      <button id="load" class="secondary">Load example</button>
+      <button id="start">Start</button>
+      <button id="stop" class="danger">Stop</button>
+    </div>
+
+    <div id="status">Idle</div>
+    <pre id="log"></pre>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>
