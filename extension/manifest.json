@@ -1,15 +1,31 @@
 {
   "manifest_version": 3,
   "name": "Nexus Modlist Sequential Downloader",
-  "version": "1.0.0",
-  "description": "Sequentially opens Nexus Mods pages and starts Vortex slow downloads.",
-  "permissions": ["storage", "tabs", "scripting"],
-  "host_permissions": ["https://www.nexusmods.com/*"],
-  "action": {"default_popup": "popup.html"},
-  "background": {"service_worker": "background.js", "type": "module"},
-  "content_scripts": [{
-    "matches": ["https://www.nexusmods.com/*"],
-    "js": ["content.js"],
-    "run_at": "document_idle"
-  }]
+  "version": "2.0.0",
+  "description": "Sequentially processes Nexus Mods mod pages using their mod-download-modal Vortex download URLs and starts Slow downloads.",
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.nexusmods.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.nexusmods.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
 }
