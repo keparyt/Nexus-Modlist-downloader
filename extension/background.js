@@ -95,7 +95,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       if (!state.running || !state.tabId || sender.tab?.id !== state.tabId) return;
 
       const url = message.url;
-      if (!url || !/^https:\/\/www\.nexusmods\.com\/api\/files\/\\d+\/download(?:[/?]|$)/i.test(url)) {
+      if (!url || !/^https:\/\/www\.nexusmods\.com\/api\/files\/\d+\/download(?:[/?]|$)/i.test(url)) {
         await log(state, 'Rejected invalid Vortex download URL');
         return;
       }
