@@ -20,6 +20,10 @@ For each mod URL:
 11. Wait 10 seconds.
 12. Move to the next mod URL.
 
+## Slow download detection
+
+The redirected Nexus page is handled through its `<mod-file-download>` web component. The extension recursively inspects that component's Shadow DOM and waits up to 60 seconds for the rendered **Slow download** control. It supports buttons, links, role buttons, and component parts whose text or accessibility attributes identify Slow download.
+
 ## Why the modal is used
 
 The extension no longer depends on finding a generic visible element whose text happens to say **Vortex**. Nexus exposes the file information directly on:
