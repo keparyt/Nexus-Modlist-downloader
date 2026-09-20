@@ -76,7 +76,8 @@ $('start').onclick = async () => {
   await chrome.runtime.sendMessage({
     type: 'START',
     urls,
-    downloadMethod: $('method').value
+    downloadMethod: $('method').value,
+    gatewayUrl: $('gatewayUrl').value.trim()
   });
 
   if (rejected) {
@@ -91,8 +92,7 @@ $('stop').onclick = async () => {
   await refresh();
 };
 
-refresh();
-setInterval(refresh, 500);
+chrome.storage.local.get('nexusGatewayUrl', data => {\n  if (data.nexusGatewayUrl) $('gatewayUrl').value = data.nexusGatewayUrl;\n});\n$('gatewayUrl').addEventListener('change', () => {\n  chrome.storage.local.set({ nexusGatewayUrl: $('gatewayUrl').value.trim() });\n});\n\nrefresh();\nsetInterval(refresh, 500);
 
 $('copyCaptured').onclick = async () => {
   const { nexusQueueState: state } = await chrome.storage.local.get('nexusQueueState');
