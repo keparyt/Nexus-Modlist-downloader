@@ -41,11 +41,27 @@
     seen.add(root);
     out.push({ root, path });
 
+    // The starting root can itself be a custom element with a shadow root.
+    // querySelectorAll('*') does not include the root element, so inspect its
+    // own shadowRoot before walking descendant elements.
+    try {
+      if (root instanceof Element && root.shadowRoot) {
+        allRoots(root.shadowRoot, path + '::shadow', out, seen);
+      }
+    } catch {}
+
     let nodes = [];
     try { nodes = [...root.querySelectorAll('*')]; } catch {}
     for (const node of nodes) {
       try {
-        if (node.shadowRoot) allRoots(node.shadowRoot, path + ' > ' + node.tagName.toLowerCase() + '::shadow', out, seen);
+        if (node.shadowRoot) {
+          allRoots(
+            node.shadowRoot,
+            path + ' > ' + node.tagName.toLowerCase() + '::shadow',
+            out,
+            seen
+          );
+        }
       } catch {}
     }
     return out;
