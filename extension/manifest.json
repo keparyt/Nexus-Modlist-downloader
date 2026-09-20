@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Nexus Modlist Sequential Downloader",
-  "version": "2.1.0",
-  "description": "Sequentially processes Nexus Mods mod pages using their mod-download-modal Vortex download URLs and starts Slow downloads.",
+  "version": "2.2.0",
+  "description": "Sequentially processes Nexus Mods mod pages using Vortex or Manual download URLs and starts Slow downloads.",
   "permissions": [
     "storage",
     "tabs"
