@@ -238,10 +238,10 @@
 
       const button = findSlowDownload();
       if (button) {
-        if (downloadMethod === 'manual-urlgrab') {
+        if (downloadMethod === 'manual-urlgrab' || downloadMethod === 'gateway') {
           const componentUrl = component?.getAttribute('download-url') || '';
           if (componentUrl) {
-            debug(`URL Grab found final download URL: ${componentUrl}`);
+            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} found final download URL: ${componentUrl}`);
             // CAPTURE_URL atomically records the URL and starts the queue wait.
             // Keeping this as one message prevents a race that could overwrite the
             // captured URL with an older background state.
@@ -249,7 +249,7 @@
             busy = false;
             return;
           }
-          debug('URL Grab: Slow Download is visible but download-url is not available yet');
+          debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'}: Slow Download is visible but download-url is not available yet`);
         } else if (clickSlow(button)) {
           debug('Slow Download click sent; notifying background');
           chrome.runtime.sendMessage({ type: 'DOWNLOAD_STARTED' }).catch(() => {});
@@ -354,7 +354,7 @@
     busy = true;
     debug(`Content script loaded: ${location.href}; readyState=${document.readyState}`);
     const state = await new Promise(resolve => chrome.storage.local.get(KEY, data => resolve(data[KEY] || {})));
-    downloadMethod = ['vortex', 'manual', 'manual-urlgrab'].includes(state.downloadMethod) ? state.downloadMethod : 'vortex';
+    downloadMethod = ['vortex', 'manual', 'manual-urlgrab', 'gateway'].includes(state.downloadMethod) ? state.downloadMethod : 'vortex';
     debug(`Download method: ${downloadMethod}`);
 
     if (isDownloadUrl()) {
