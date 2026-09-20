@@ -7,7 +7,8 @@ const DEFAULT_STATE = {
   tabId: null,
   log: [],
   downloadWaiting: false,
-  downloadMethod: 'vortex'
+  downloadMethod: 'vortex',
+  capturedUrls: []
 };
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -33,7 +34,7 @@ async function openNext() {
   if (state.index >= state.urls.length) {
     state.running = false;
     state.downloadWaiting = false;
-    await log(state, 'Completed all URLs');
+    await log(state, state.downloadMethod === 'manual-urlgrab' ? `Completed all URLs; captured ${state.capturedUrls.length} download URL(s)` : 'Completed all URLs');
     return;
   }
 
@@ -74,7 +75,8 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       state.tabId = null;
       state.log = [];
       state.downloadWaiting = false;
-      state.downloadMethod = message.downloadMethod === 'manual' ? 'manual' : 'vortex';
+      state.downloadMethod = ['vortex', 'manual', 'manual-urlgrab'].includes(message.downloadMethod) ? message.downloadMethod : 'vortex';
+      state.capturedUrls = [];
       await saveState(state);
       await log(state, `Queue started with ${urls.length} URL(s)`);
       await openNext();
@@ -108,6 +110,29 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       } catch (error) {
         await log(state, `Vortex URL navigation failed: ${error.message}`);
       }
+      return;
+    }
+
+    if (message.type === 'CAPTURE_URL') {
+      if (!state.running || state.downloadMethod !== 'manual-urlgrab') return;
+      const url = typeof message.url === 'string' ? message.url.trim() : '';
+      if (!url || !/^(?:nxm:\/\/|https:\/\/)/i.test(url)) return;
+      if (!state.capturedUrls.includes(url)) state.capturedUrls.push(url);
+      await log(state, `Captured download URL ${state.capturedUrls.length}: ${url}`);
+      return;
+    }
+
+    if (message.type === 'DOWNLOAD_CAPTURED') {
+      if (!state.running || state.downloadMethod !== 'manual-urlgrab' || state.downloadWaiting) return;
+      state.downloadWaiting = true;
+      await log(state, `URL captured; waiting 10 seconds before next URL (${state.capturedUrls.length} captured)`);
+      await sleep(10000);
+      const latest = await getState();
+      if (!latest.running || !latest.downloadWaiting || latest.downloadMethod !== 'manual-urlgrab') return;
+      latest.downloadWaiting = false;
+      latest.index += 1;
+      await saveState(latest);
+      await openNext();
       return;
     }
 
