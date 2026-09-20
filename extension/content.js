@@ -242,8 +242,10 @@
           const componentUrl = component?.getAttribute('download-url') || '';
           if (componentUrl) {
             debug(`URL Grab found final download URL: ${componentUrl}`);
+            // CAPTURE_URL atomically records the URL and starts the queue wait.
+            // Keeping this as one message prevents a race that could overwrite the
+            // captured URL with an older background state.
             chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url: componentUrl }).catch(() => {});
-            chrome.runtime.sendMessage({ type: 'DOWNLOAD_CAPTURED' }).catch(() => {});
             busy = false;
             return;
           }
