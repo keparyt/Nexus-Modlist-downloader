@@ -139,7 +139,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     }
 
     if (message.type === 'CAPTURE_URL') {
-      if (!state.running || state.downloadMethod !== 'manual-urlgrab' || state.downloadWaiting) return;
+      if (!state.running || !['manual-urlgrab', 'gateway'].includes(state.downloadMethod) || state.downloadWaiting) return;
       const url = typeof message.url === 'string' ? message.url.trim() : '';
       if (!url || !/^(?:nxm:\/\/|https:\/\/)/i.test(url)) return;
 
