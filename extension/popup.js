@@ -72,7 +72,11 @@ $('start').onclick = async () => {
     return;
   }
 
-  await chrome.runtime.sendMessage({ type: 'START', urls });
+  await chrome.runtime.sendMessage({
+    type: 'START',
+    urls,
+    downloadMethod: $('method').value
+  });
 
   if (rejected) {
     $('status').textContent = `Started ${urls.length}; ignored ${rejected} invalid URL(s)`;
