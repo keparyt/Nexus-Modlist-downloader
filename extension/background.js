@@ -91,6 +91,24 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       return;
     }
 
+    if (message.type === 'NAVIGATE_DOWNLOAD') {
+      if (!state.running || !state.tabId || sender.tab?.id !== state.tabId) return;
+
+      const url = message.url;
+      if (!url || !/^https:\/\/www\.nexusmods\.com\/api\/files\/\\d+\/download(?:[/?]|$)/i.test(url)) {
+        await log(state, 'Rejected invalid Vortex download URL');
+        return;
+      }
+
+      await log(state, `Navigating queue tab to Vortex URL: ${url}`);
+      try {
+        await chrome.tabs.update(state.tabId, { url, active: true });
+      } catch (error) {
+        await log(state, `Vortex URL navigation failed: ${error.message}`);
+      }
+      return;
+    }
+
     if (message.type === 'DOWNLOAD_STARTED') {
       if (!state.running || state.downloadWaiting) return;
 
