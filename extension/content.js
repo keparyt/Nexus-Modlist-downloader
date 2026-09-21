@@ -171,7 +171,60 @@
     return null;
   };
 
-  const normalizeNxmUrl = value => {,    const text = String(value || '').trim();,    return /^nxm:\/\//i.test(text) ? text : '';,  };,,  const findNxmUrl = component => {,    if (!component) return '';,,    const direct = [,      component.getAttribute('download-url'),,      component.downloadUrl,,      component.downloadURL,,      component.dataset?.downloadUrl,,      component.file?.downloadUrl,,      component.file?.downloadURL,    ];,,    for (const value of direct) {,      const url = normalizeNxmUrl(value);,      if (url) return url;,    },,    for (const { root } of allRoots(component, 'mod-file-download')) {,      let nodes = [];,      try { nodes = [root, ...root.querySelectorAll('*')]; } catch {},,      for (const node of nodes) {,        try {,          for (const name of node.getAttributeNames?.() || []) {,            const url = normalizeNxmUrl(node.getAttribute(name));,            if (url) return url;,          },        } catch {},,        const props = [,          node.downloadUrl,,          node.downloadURL,,          node.fileUri,,          node.fileURI,,          node.file?.downloadUrl,,          node.file?.downloadURL,        ];,,        for (const value of props) {,          const url = normalizeNxmUrl(value);,          if (url) return url;,        },      },    },,    return '';,  };,  const clickAction = el => {
+  const normalizeNxmUrl = value => {
+    const text = String(value || '').trim();
+    return /^nxm:\/\//i.test(text) ? text : '';
+  };
+
+  const findNxmUrl = component => {
+    if (!component) return '';
+
+    const direct = [
+      component.getAttribute('download-url'),
+      component.downloadUrl,
+      component.downloadURL,
+      component.dataset?.downloadUrl,
+      component.file?.downloadUrl,
+      component.file?.downloadURL
+    ];
+
+    for (const value of direct) {
+      const url = normalizeNxmUrl(value);
+      if (url) return url;
+    }
+
+    for (const { root } of allRoots(component, 'mod-file-download')) {
+      let nodes = [];
+      try { nodes = [root, ...root.querySelectorAll('*')]; } catch {}
+
+      for (const node of nodes) {
+        try {
+          for (const name of node.getAttributeNames?.() || []) {
+            const url = normalizeNxmUrl(node.getAttribute(name));
+            if (url) return url;
+          }
+        } catch {}
+
+        const props = [
+          node.downloadUrl,
+          node.downloadURL,
+          node.fileUri,
+          node.fileURI,
+          node.file?.downloadUrl,
+          node.file?.downloadURL
+        ];
+
+        for (const value of props) {
+          const url = normalizeNxmUrl(value);
+          if (url) return url;
+        }
+      }
+    }
+
+    return '';
+  };
+
+  const clickAction = el => {
     debug('Attempting action click');
     try { el.scrollIntoView({ block: 'center', inline: 'center' }); } catch {}
     try { el.focus?.(); } catch {}
