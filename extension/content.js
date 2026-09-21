@@ -317,7 +317,7 @@
         if (downloadMethod === 'manual-urlgrab' || downloadMethod === 'gateway') {
           const componentUrl = findNxmUrl(component);
           if (componentUrl) {
-            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} captured existing nxm:// URL without opening it: ${componentUrl}`);
+            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} captured nxm:// URL from Nexus without clicking Slow Download: ${componentUrl}`);
             chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url: componentUrl }).catch(() => {});
             busy = false;
             return;
@@ -325,7 +325,7 @@
 
           const rawUrl = component?.getAttribute('download-url') || '';
           if (scans === 1 || scans % 5 === 0) {
-            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'}: no nxm:// URL exposed; not clicking to avoid native download prompt (current value: ${rawUrl})`);
+            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} waiting for Nexus to expose nxm:// URL; Slow Download is intentionally not clicked (current value: ${rawUrl})`);
           }
         } else if (clickSlow(button)) {
           debug('Slow Download click sent; notifying background');
@@ -411,10 +411,10 @@
         debug(`Exact ${captureMode ? (downloadMethod === 'gateway' ? 'Gateway' : 'Manual URL Grab') : (downloadMethod === 'manual' ? 'Manual' : 'Vortex')} URL available: ${url}`);
 
         chrome.runtime.sendMessage({
-          type: captureMode ? 'RESOLVE_DOWNLOAD' : 'NAVIGATE_DOWNLOAD',
+          type: 'NAVIGATE_DOWNLOAD',
           url,
           method: downloadMethod
-        }).catch(e => debug(`${captureMode ? 'Resolver' : 'Navigation'} request failed: ${e.message}`));
+        }).catch(e => debug(`Navigation request failed: ${e.message}`));
         return;
       }
 
