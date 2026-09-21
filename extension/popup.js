@@ -37,6 +37,8 @@ async function refresh() {
 
   if (!state) {
     $('status').textContent = 'Idle';
+    $('count').textContent = '0 URL(s)';
+    $('captured').value = '';
     $('log').textContent = '';
     return;
   }
@@ -58,12 +60,12 @@ async function refresh() {
   $('log').scrollTop = $('log').scrollHeight;
 }
 
-$('load').onclick = async () => {
+$('load').addEventListener('click', async () => {
   $('list').value = JSON.stringify(example, null, 2);
   await refresh();
-};
+});
 
-$('start').onclick = async () => {
+$('start').addEventListener('click', async () => {
   const rawUrls = parse($('list').value);
   const urls = [...new Set(rawUrls.filter(validNexusUrl))];
   const rejected = rawUrls.length - urls.length;
@@ -73,11 +75,13 @@ $('start').onclick = async () => {
     return;
   }
 
+  const gatewayUrl = $('gatewayUrl').value.trim();
+  await chrome.storage.local.set({ nexusGatewayUrl: gatewayUrl });
   await chrome.runtime.sendMessage({
     type: 'START',
     urls,
     downloadMethod: $('method').value,
-    gatewayUrl: $('gatewayUrl').value.trim()
+    gatewayUrl
   });
 
   if (rejected) {
@@ -85,20 +89,29 @@ $('start').onclick = async () => {
   }
 
   await refresh();
-};
+});
 
-$('stop').onclick = async () => {
+$('stop').addEventListener('click', async () => {
   await chrome.runtime.sendMessage({ type: 'STOP' });
   await refresh();
-};
+});
 
-chrome.storage.local.get('nexusGatewayUrl', data => {\n  if (data.nexusGatewayUrl) $('gatewayUrl').value = data.nexusGatewayUrl;\n});\n$('gatewayUrl').addEventListener('change', () => {\n  chrome.storage.local.set({ nexusGatewayUrl: $('gatewayUrl').value.trim() });\n});\n\nrefresh();\nsetInterval(refresh, 500);
+chrome.storage.local.get('nexusGatewayUrl', data => {
+  if (data.nexusGatewayUrl) $('gatewayUrl').value = data.nexusGatewayUrl;
+});
 
-$('copyCaptured').onclick = async () => {
+$('gatewayUrl').addEventListener('change', () => {
+  chrome.storage.local.set({ nexusGatewayUrl: $('gatewayUrl').value.trim() });
+});
+
+$('copyCaptured').addEventListener('click', async () => {
   const { nexusQueueState: state } = await chrome.storage.local.get('nexusQueueState');
   const urls = (state?.capturedUrls || []).join('\n');
   if (!urls) return;
   await navigator.clipboard.writeText(urls);
   $('copyCaptured').textContent = 'Copied';
   setTimeout(() => $('copyCaptured').textContent = 'Copy captured URLs', 1200);
-};
+});
+
+refresh();
+setInterval(refresh, 500);
