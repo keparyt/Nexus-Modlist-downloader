@@ -278,6 +278,7 @@
     const started = Date.now();
     let scans = 0;
     let loggedComponent = false;
+    let captureClickSent = false;
 
     while (Date.now() - started < 90000) {
       scans++;
@@ -292,6 +293,15 @@
       const button = findSlowDownload();
       if (button) {
         if (downloadMethod === 'manual-urlgrab' || downloadMethod === 'gateway') {
+          if (!captureClickSent) {
+            if (clickSlow(button)) {
+              captureClickSent = true;
+              debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} Slow Download click sent; waiting for final nxm:// URL`);
+            } else {
+              debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} Slow Download click failed; retrying`);
+            }
+          }
+
           const componentUrl = findNxmUrl(component);
           if (componentUrl) {
             debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} found final download URL: ${componentUrl}`);
@@ -301,7 +311,9 @@
           }
 
           const rawUrl = component?.getAttribute('download-url') || '';
-          debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'}: Slow Download is visible; waiting for nxm:// URL (current value: ${rawUrl})`);
+          if (scans === 1 || scans % 5 === 0) {
+            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} waiting for nxm:// URL (current value: ${rawUrl})`);
+          }
         } else if (clickSlow(button)) {
           debug('Slow Download click sent; notifying background');
           chrome.runtime.sendMessage({ type: 'DOWNLOAD_STARTED' }).catch(() => {});
