@@ -43,6 +43,131 @@ async function log(state, message) {
   await saveState(state);
 }
 
+function extractNxmUrl(text) {
+  if (!text) return '';
+  const decoded = String(text)
+    .replace(/&amp;/g, '&')
+    .replace(/\\\//g, '/')
+    .replace(/\\u0026/g, '&');
+
+  const match = decoded.match(/nxm:\/\/[^\s"'<>]+/i);
+  return match ? match[0] : '';
+}
+
+async function captureResolvedUrl(url, source = 'resolver') {
+  const state = await getState();
+
+  if (
+    !state.running ||
+    !['manual-urlgrab', 'gateway'].includes(state.downloadMethod) ||
+    state.downloadWaiting ||
+    !/^nxm:\/\//i.test(url || '')
+  ) {
+    return false;
+  }
+
+  const captured = String(url).trim();
+
+  if (!state.capturedUrls.includes(captured)) {
+    state.capturedUrls.push(captured);
+  }
+
+  state.downloadWaiting = true;
+
+  await log(
+    state,
+    'Captured download URL ' +
+      state.capturedUrls.length +
+      ' [' +
+      source +
+      ']: ' +
+      captured
+  );
+
+  if (state.downloadMethod === 'gateway') {
+    await sendToGateway(captured, state);
+  }
+
+  await log(
+    state,
+    'URL captured; waiting 10 seconds before next URL (' +
+      state.capturedUrls.length +
+      ' captured)'
+  );
+
+  await sleep(10000);
+
+  const latest = await getState();
+
+  if (
+    !latest.running ||
+    !latest.downloadWaiting ||
+    !['manual-urlgrab', 'gateway'].includes(latest.downloadMethod)
+  ) {
+    return true;
+  }
+
+  latest.downloadWaiting = false;
+  latest.downloadResolveUrl = '';
+  latest.index += 1;
+
+  await saveState(latest);
+  await openNext();
+  return true;
+}
+
+async function resolveDownloadInBackground(state, url) {
+  state.downloadResolveUrl = url;
+  await saveState(state);
+
+  await log(
+    state,
+    'Resolving ' +
+      (state.downloadMethod === 'gateway' ? 'Gateway' : 'Manual URL Grab') +
+      ' download without browser navigation: ' +
+      url
+  );
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      redirect: 'follow',
+      cache: 'no-store',
+      headers: {
+        Accept: 'text/html,application/xhtml+xml,text/plain,*/*'
+      }
+    });
+
+    const text = await response.text().catch(() => '');
+    const nxm = extractNxmUrl(text);
+
+    if (nxm) {
+      await captureResolvedUrl(nxm, 'API response');
+    } else if (response.url && /^nxm:\/\//i.test(response.url)) {
+      await captureResolvedUrl(response.url, 'API final URL');
+    } else {
+      await log(
+        state,
+        'Gateway resolver response contained no nxm:// URL; waiting for redirect interceptor'
+      );
+    }
+  } catch (error) {
+    const latest = await getState();
+
+    if (
+      latest.running &&
+      !latest.downloadWaiting &&
+      latest.downloadResolveUrl === url
+    ) {
+      await log(
+        latest,
+        'Resolver request ended before readable response: ' + error.message
+      );
+    }
+  }
+}
+
 async function sendToGateway(url, state) {
   const base = stripTrailingSlashes(
     state.gatewayUrl || DEFAULT_STATE.gatewayUrl
@@ -189,6 +314,39 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       if (state.running) {
         await log(state, message.text || '');
       }
+      return;
+    }
+
+    if (message.type === 'RESOLVE_DOWNLOAD') {
+      if (
+        !state.running ||
+        !state.tabId ||
+        sender.tab?.id !== state.tabId ||
+        !['manual-urlgrab', 'gateway'].includes(message.method || state.downloadMethod) ||
+        state.downloadWaiting
+      ) {
+        return;
+      }
+
+      const url = typeof message.url === 'string' ? message.url.trim() : '';
+
+      if (
+        !url ||
+        !/^https:\/\/www\.nexusmods\.com\/api\/files\/\d+\/download(?:[/?]|$)/i.test(url)
+      ) {
+        await log(state, 'Rejected invalid resolver URL: ' + url);
+        return;
+      }
+
+      const requestedMethod = ['manual-urlgrab', 'gateway'].includes(message.method)
+        ? message.method
+        : state.downloadMethod;
+
+      state.downloadMethod = requestedMethod;
+      state.downloadResolveUrl = url;
+      await saveState(state);
+
+      await resolveDownloadInBackground(state, url);
       return;
     }
 
@@ -374,35 +532,21 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 chrome.webRequest.onBeforeRedirect.addListener(
   details => {
     if (!/^nxm:\/\//i.test(details.redirectUrl || '')) return;
+
     (async () => {
       const state = await getState();
+
       if (
         !state.running ||
-        state.tabId !== details.tabId ||
+        state.downloadWaiting ||
         !['manual-urlgrab', 'gateway'].includes(state.downloadMethod) ||
-        state.downloadWaiting
+        !state.downloadResolveUrl ||
+        details.url !== state.downloadResolveUrl
       ) {
         return;
       }
 
-      await log(
-        state,
-        'Intercepted NXM redirect before native downloader: ' +
-          details.redirectUrl
-      );
-
-      try {
-        await chrome.tabs.sendMessage(details.tabId, {
-          type: 'CAPTURE_URL_FROM_NETWORK',
-          url: details.redirectUrl
-        });
-      } catch (error) {
-        await log(
-          state,
-          'Could not forward intercepted NXM URL to content script: ' +
-            error.message
-        );
-      }
+      await captureResolvedUrl(details.redirectUrl, 'network redirect');
     })().catch(error => {
       console.error(
         '[Nexus Modlist Downloader] NXM redirect handler error:',
@@ -412,6 +556,7 @@ chrome.webRequest.onBeforeRedirect.addListener(
   },
   { urls: ['https://www.nexusmods.com/api/files/*/download*'] }
 );
+
 
 chrome.tabs.onRemoved.addListener(async tabId => {
   const state = await getState();
