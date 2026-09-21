@@ -248,24 +248,44 @@
 
   const clickSlow = el => {
     debug('Attempting Slow Download click');
-    try { el.scrollIntoView({ block: 'center', inline: 'center' }); } catch {}
-    try { el.focus?.(); } catch {}
+    if (!el) return false;
 
-    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
-      try {
-        el.dispatchEvent(new MouseEvent(type, {
-          bubbles: true, cancelable: true, composed: true, view: window,
-          buttons: type === 'mousedown' || type === 'mouseup' ? 1 : 0
-        }));
-      } catch {}
+    try {
+      el.scrollIntoView({ block: 'center', inline: 'center' });
+    } catch {}
+
+    try {
+      el.focus?.();
+    } catch {}
+
+    try {
+      if (el instanceof HTMLButtonElement) {
+        HTMLButtonElement.prototype.click.call(el);
+      } else if (el instanceof HTMLElement && HTMLElement.prototype.click) {
+        HTMLElement.prototype.click.call(el);
+      } else if (typeof el.click === 'function') {
+        el.click();
+      } else {
+        throw new Error('Element has no click method');
+      }
+
+      debug('Slow Download native click completed');
+      return true;
+    } catch (e) {
+      debug(`Slow Download native click failed: ${e.message}`);
     }
 
     try {
-      el.click();
-      debug('Slow Download .click() completed');
+      el.dispatchEvent(new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        view: window
+      }));
+      debug('Slow Download fallback click event dispatched');
       return true;
     } catch (e) {
-      debug(`Slow Download .click() failed: ${e.message}`);
+      debug(`Slow Download fallback click failed: ${e.message}`);
       return false;
     }
   };
