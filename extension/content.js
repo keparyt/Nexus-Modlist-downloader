@@ -484,6 +484,7 @@
     debug(`Content script loaded: ${location.href}; readyState=${document.readyState}`);
     const state = await new Promise(resolve => chrome.storage.local.get(KEY, data => resolve(data[KEY] || {})));
     downloadMethod = ['vortex', 'manual', 'manual-urlgrab', 'gateway'].includes(state.downloadMethod) ? state.downloadMethod : 'vortex';
+    downloadResolveUrl = typeof state.downloadResolveUrl === 'string' ? state.downloadResolveUrl : '';
     debug(`Download method: ${downloadMethod}`);
 
     if (isDownloadUrl()) {
@@ -504,6 +505,16 @@
   }
 
   debug('Content script initialized');
+
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type !== 'CAPTURE_URL_FROM_NETWORK') return;
+
+    const url = typeof message.url === 'string' ? message.url.trim() : '';
+    if (!/^nxm:\/\//i.test(url)) return;
+
+    debug(`Intercepted network NXM URL: ${url}`);
+    chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url }).catch(() => {});
+  });
 
   chrome.storage.local.get(KEY, ({ nexusQueueState: state }) => {
     if (!state?.running) {
