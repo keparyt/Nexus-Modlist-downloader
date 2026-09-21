@@ -292,6 +292,101 @@
     }
   };
 
+  const parseNxmFromResponse = text => {
+    if (!text) return '';
+    const raw = String(text)
+      .replace(/&amp;/g, '&')
+      .replace(/\\\//g, '/')
+      .replace(/\\u0026/g, '&');
+
+    try {
+      const json = JSON.parse(raw);
+      const candidates = [
+        json?.downloadUrl,
+        json?.url,
+        json?.vortexDownloadUrl,
+        json?.nmmDownloadUrl,
+        json?.data?.url
+      ];
+      for (const value of candidates) {
+        const url = normalizeNxmUrl(value);
+        if (url) return url;
+      }
+    } catch {}
+
+    const match = raw.match(/nxm:\/\/[^\s"'<>]+/i);
+    return match ? normalizeNxmUrl(match[0]) : '';
+  };
+
+  async function resolveSlowDownloadFromPage(component) {
+    const fileId = component?.getAttribute('file-id') || '';
+    const gameId = component?.getAttribute('game-id') || '';
+
+    if (!fileId || !gameId) {
+      debug(`Gateway cannot resolve Slow Download: file-id="${fileId}" game-id="${gameId}"`);
+      return '';
+    }
+
+    const body = new URLSearchParams();
+    body.set('fid', fileId);
+    body.set('game_id', gameId);
+    body.set('nmm', '1');
+
+    try {
+      debug(`Gateway requesting Nexus GenerateDownloadUrl for file-id=${fileId}, game-id=${gameId}`);
+      const response = await fetch('/Core/Libs/Common/Managers/Downloads?GenerateDownloadUrl', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: body.toString()
+      });
+
+      const text = await response.text().catch(() => '');
+      const nxm = parseNxmFromResponse(text);
+      if (nxm) return nxm;
+
+      debug(`Gateway GenerateDownloadUrl returned status=${response.status} without a usable nxm:// URL`);
+    } catch (error) {
+      debug(`Gateway GenerateDownloadUrl request failed: ${error.message}`);
+    }
+
+    return '';
+  };
+
+  async function interceptSlowDownload(button, component) {
+    if (!button || button.dataset.nexusGatewayIntercepted === '1') return;
+
+    button.dataset.nexusGatewayIntercepted = '1';
+
+    button.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, true);
+
+    debug('Gateway intercepted Slow Download click; native nxm:// launch is blocked');
+
+    const componentUrlBefore = findNxmUrl(component);
+    if (componentUrlBefore) {
+      debug(`Gateway captured existing nxm:// URL: ${componentUrlBefore}`);
+      chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url: componentUrlBefore }).catch(() => {});
+      busy = false;
+      return true;
+    }
+
+    const url = await resolveSlowDownloadFromPage(component);
+    if (url) {
+      debug(`Gateway captured generated nxm:// URL: ${url}`);
+      chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url }).catch(() => {});
+      busy = false;
+      return true;
+    }
+
+    return false;
+  };
+
   async function handleDownloadPage(reason = 'detected') {
     if (downloadMode) return;
     downloadMode = true;
@@ -315,17 +410,25 @@
       const button = findSlowDownload();
       if (button) {
         if (downloadMethod === 'manual-urlgrab' || downloadMethod === 'gateway') {
+          if (!button.dataset.nexusGatewayClickStarted) {
+            button.dataset.nexusGatewayClickStarted = '1';
+
+            const intercepted = await interceptSlowDownload(button, component);
+            if (intercepted) return;
+
+            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} could not resolve nxm:// yet; continuing to poll`);
+          }
+
           const componentUrl = findNxmUrl(component);
           if (componentUrl) {
-            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} captured nxm:// URL from Nexus without clicking Slow Download: ${componentUrl}`);
+            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} captured nxm:// URL from Nexus: ${componentUrl}`);
             chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url: componentUrl }).catch(() => {});
             busy = false;
             return;
           }
 
-          const rawUrl = component?.getAttribute('download-url') || '';
           if (scans === 1 || scans % 5 === 0) {
-            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} waiting for Nexus to expose nxm:// URL; Slow Download is intentionally not clicked (current value: ${rawUrl})`);
+            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} waiting for generated nxm:// URL`);
           }
         } else if (clickSlow(button)) {
           debug('Slow Download click sent; notifying background');
