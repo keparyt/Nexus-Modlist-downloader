@@ -14,6 +14,10 @@ const DEFAULT_STATE = {
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+function stripTrailingSlashes(value) {
+  return String(value || '').replace(/\/$/, '');
+}
+
 async function getState() {
   const data = await chrome.storage.local.get(KEY);
   return { ...DEFAULT_STATE, ...(data[KEY] || {}) };
@@ -24,57 +28,93 @@ async function saveState(state) {
 }
 
 async function log(state, message) {
-  state.log = [...(state.log || []), new Date().toLocaleTimeString() + ' ' + message].slice(-150);
+  state.log = [
+    ...(state.log || []),
+    new Date().toLocaleTimeString() + ' ' + message
+  ].slice(-150);
   await saveState(state);
 }
 
 async function sendToGateway(url, state) {
-  const base = String(state.gatewayUrl || DEFAULT_STATE.gatewayUrl).replace(/\\/+$/, '');
+  const base = stripTrailingSlashes(
+    state.gatewayUrl || DEFAULT_STATE.gatewayUrl
+  );
+
   try {
     const response = await fetch(base + '/api/url', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url })
     });
+
     const data = await response.json().catch(() => ({}));
+
     if (!response.ok || !data.ok) {
-      await log(state, `Gateway rejected URL: ${data.error || response.statusText}`);
+      await log(
+        state,
+        'Gateway rejected URL: ' + (data.error || response.statusText)
+      );
       return false;
     }
-    await log(state, `Sent URL to gateway: ${url}`);
+
+    await log(state, 'Sent URL to gateway: ' + url);
     return true;
   } catch (error) {
-    await log(state, `Gateway unavailable at ${base}: ${error.message}`);
+    await log(
+      state,
+      'Gateway unavailable at ' + base + ': ' + error.message
+    );
     return false;
   }
 }
 
 async function openNext() {
   const state = await getState();
+
   if (!state.running) return;
 
   if (state.index >= state.urls.length) {
     state.running = false;
     state.downloadWaiting = false;
-    await log(state, state.downloadMethod === 'manual-urlgrab' ? `Completed all URLs; captured ${state.capturedUrls.length} download URL(s)` : 'Completed all URLs');
+
+    const message =
+      state.downloadMethod === 'manual-urlgrab' || state.downloadMethod === 'gateway'
+        ? 'Completed all URLs; captured ' + state.capturedUrls.length + ' download URL(s)'
+        : 'Completed all URLs';
+
+    await log(state, message);
     return;
   }
 
   const url = state.urls[state.index];
   state.downloadWaiting = false;
-  await log(state, `Opening ${state.index + 1}/${state.urls.length}: ${url}`);
+
+  await log(
+    state,
+    'Opening ' + (state.index + 1) + '/' + state.urls.length + ': ' + url
+  );
 
   if (state.tabId) {
     try {
-      await chrome.tabs.update(state.tabId, { url, active: true });
+      await chrome.tabs.update(state.tabId, {
+        url,
+        active: true
+      });
       return;
     } catch (error) {
-      await log(state, `Existing queue tab unavailable: ${error.message}`);
+      await log(
+        state,
+        'Existing queue tab unavailable: ' + error.message
+      );
       state.tabId = null;
     }
   }
 
-  const tab = await chrome.tabs.create({ url, active: true });
+  const tab = await chrome.tabs.create({
+    url,
+    active: true
+  });
+
   state.tabId = tab.id;
   await saveState(state);
 }
@@ -83,27 +123,48 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   (async () => {
     const state = await getState();
 
-    // Only the tab currently owned by the queue can advance or log the queue.
-    if (message.type !== 'START' && message.type !== 'STOP' &&
-        sender.tab?.id && state.tabId && sender.tab.id !== state.tabId) {
+    if (
+      message.type !== 'START' &&
+      message.type !== 'STOP' &&
+      sender.tab?.id &&
+      state.tabId &&
+      sender.tab.id !== state.tabId
+    ) {
       return;
     }
 
     if (message.type === 'START') {
       const urls = [...new Set(message.urls || [])];
+
       state.urls = urls;
       state.index = 0;
       state.running = urls.length > 0;
       state.tabId = null;
       state.log = [];
       state.downloadWaiting = false;
-      state.downloadMethod = ['vortex', 'manual', 'manual-urlgrab', 'gateway'].includes(message.downloadMethod) ? message.downloadMethod : 'vortex';
+
+      state.downloadMethod = [
+        'vortex',
+        'manual',
+        'manual-urlgrab',
+        'gateway'
+      ].includes(message.downloadMethod)
+        ? message.downloadMethod
+        : 'vortex';
+
       state.capturedUrls = [];
-      state.gatewayUrl = typeof message.gatewayUrl === 'string' && message.gatewayUrl.trim()
-        ? message.gatewayUrl.trim().replace(/\\/+$/, '')
-        : DEFAULT_STATE.gatewayUrl;
+
+      state.gatewayUrl =
+        typeof message.gatewayUrl === 'string' &&
+        message.gatewayUrl.trim()
+          ? stripTrailingSlashes(message.gatewayUrl.trim())
+          : DEFAULT_STATE.gatewayUrl;
+
       await saveState(state);
-      await log(state, `Queue started with ${urls.length} URL(s)`);
+      await log(
+        state,
+        'Queue started with ' + urls.length + ' URL(s)'
+      );
       await openNext();
       return;
     }
@@ -116,75 +177,153 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     }
 
     if (message.type === 'STEP_LOG') {
-      if (state.running) await log(state, message.text || '');
+      if (state.running) {
+        await log(state, message.text || '');
+      }
       return;
     }
 
     if (message.type === 'NAVIGATE_DOWNLOAD') {
-      if (!state.running || !state.tabId || sender.tab?.id !== state.tabId) return;
-
-      const url = message.url;
-      if (!url || !/^https:\/\/www\.nexusmods\.com\/api\/files\/\d+\/download(?:[/?]|$)/i.test(url)) {
-        await log(state, `Rejected invalid ${state.downloadMethod === 'manual' ? 'Manual' : 'Vortex'} download URL`);
+      if (
+        !state.running ||
+        !state.tabId ||
+        sender.tab?.id !== state.tabId
+      ) {
         return;
       }
 
-      await log(state, `Navigating queue tab to ${state.downloadMethod === 'manual' ? 'Manual' : 'Vortex'} URL: ${url}`);
-      try {
-        await chrome.tabs.update(state.tabId, { url, active: true });
-      } catch (error) {
-        await log(state, `Vortex URL navigation failed: ${error.message}`);
+      const url = message.url;
+
+      if (
+        !url ||
+        !/^https:\/\/www\.nexusmods\.com\/api\/files\/\d+\/download(?:[/?]|$)/i.test(url)
+      ) {
+        await log(
+          state,
+          'Rejected invalid ' +
+            (state.downloadMethod === 'manual' ? 'Manual' : 'Vortex') +
+            ' download URL'
+        );
+        return;
       }
+
+      await log(
+        state,
+        'Navigating queue tab to ' +
+          (state.downloadMethod === 'manual' ? 'Manual' : 'Vortex') +
+          ' URL: ' +
+          url
+      );
+
+      try {
+        await chrome.tabs.update(state.tabId, {
+          url,
+          active: true
+        });
+      } catch (error) {
+        await log(
+          state,
+          'Download URL navigation failed: ' + error.message
+        );
+      }
+
       return;
     }
 
     if (message.type === 'CAPTURE_URL') {
-      if (!state.running || !['manual-urlgrab', 'gateway'].includes(state.downloadMethod) || state.downloadWaiting) return;
-      const url = typeof message.url === 'string' ? message.url.trim() : '';
-      if (!url || !/^(?:nxm:\/\/|https:\/\/)/i.test(url)) return;
+      if (
+        !state.running ||
+        !['manual-urlgrab', 'gateway'].includes(state.downloadMethod) ||
+        state.downloadWaiting
+      ) {
+        return;
+      }
 
-      // Capture and start the wait in the same state transaction. Previously
-      // CAPTURE_URL and DOWNLOAD_CAPTURED were separate messages, which could
-      // race and let the second handler save an older state over the captured URL.
+      const url =
+        typeof message.url === 'string'
+          ? message.url.trim()
+          : '';
+
+      if (!url || !/^(?:nxm:\/\/|https:\/\/)/i.test(url)) {
+        return;
+      }
+
       if (!state.capturedUrls.includes(url)) {
         state.capturedUrls.push(url);
       }
 
       state.downloadWaiting = true;
-      await log(state, `Captured download URL ${state.capturedUrls.length}: ${url}`);
+
+      await log(
+        state,
+        'Captured download URL ' +
+          state.capturedUrls.length +
+          ': ' +
+          url
+      );
+
       if (state.downloadMethod === 'gateway') {
         await sendToGateway(url, state);
       }
-      await log(state, `URL captured; waiting 10 seconds before next URL (${state.capturedUrls.length} captured)`);
+
+      await log(
+        state,
+        'URL captured; waiting 10 seconds before next URL (' +
+          state.capturedUrls.length +
+          ' captured)'
+      );
 
       await sleep(10000);
+
       const latest = await getState();
-      if (!latest.running || !latest.downloadWaiting || latest.downloadMethod !== 'manual-urlgrab') return;
+
+      if (
+        !latest.running ||
+        !latest.downloadWaiting ||
+        !['manual-urlgrab', 'gateway'].includes(latest.downloadMethod)
+      ) {
+        return;
+      }
 
       latest.downloadWaiting = false;
       latest.index += 1;
+
       await saveState(latest);
       await openNext();
       return;
     }
 
     if (message.type === 'DOWNLOAD_STARTED') {
-      if (!state.running || state.downloadWaiting) return;
+      if (!state.running || state.downloadWaiting) {
+        return;
+      }
 
       state.downloadWaiting = true;
-      await log(state, 'Slow download clicked; waiting 10 seconds before next URL');
+
+      await log(
+        state,
+        'Slow download clicked; waiting 10 seconds before next URL'
+      );
+
       await sleep(10000);
 
       const latest = await getState();
-      if (!latest.running || !latest.downloadWaiting) return;
+
+      if (!latest.running || !latest.downloadWaiting) {
+        return;
+      }
 
       latest.downloadWaiting = false;
       latest.index += 1;
+
       await saveState(latest);
       await openNext();
     }
   })().catch(error => {
-    console.error('[Nexus Modlist Downloader] Background error:', error);
+    console.error(
+      '[Nexus Modlist Downloader] Background error:',
+      error
+    );
   });
 
   return true;
@@ -192,8 +331,12 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
 chrome.tabs.onRemoved.addListener(async tabId => {
   const state = await getState();
+
   if (state.tabId === tabId && state.running) {
     state.tabId = null;
-    await log(state, 'Queue tab was closed; queue remains paused');
+    await log(
+      state,
+      'Queue tab was closed; queue remains paused'
+    );
   }
 });
