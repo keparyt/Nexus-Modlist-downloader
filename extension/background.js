@@ -15,6 +15,13 @@ const DEFAULT_STATE = {
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+function methodLabel(method) {
+  if (method === 'gateway') return 'Gateway';
+  if (method === 'manual-urlgrab') return 'Manual URL Grab';
+  if (method === 'manual') return 'Manual';
+  return 'Vortex';
+}
+
 function stripTrailingSlashes(value) {
   return String(value || '').replace(/\/$/, '');
 }
@@ -92,7 +99,7 @@ async function openNext() {
 
   await log(
     state,
-    'Opening ' + (state.index + 1) + '/' + state.urls.length + ': ' + url
+    'Opening ' + (state.index + 1) + '/' + state.urls.length + ' [' + methodLabel(state.downloadMethod) + ']: ' + url
   );
 
   if (state.tabId) {
@@ -165,7 +172,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       await saveState(state);
       await log(
         state,
-        'Queue started with ' + urls.length + ' URL(s)'
+        'Queue started with ' + urls.length + ' URL(s) [Method: ' + methodLabel(state.downloadMethod) + ']'
       );
       await openNext();
       return;
