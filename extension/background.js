@@ -195,6 +195,14 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       }
 
       const url = message.url;
+      const requestedMethod = [
+        'vortex',
+        'manual',
+        'manual-urlgrab',
+        'gateway'
+      ].includes(message.method)
+        ? message.method
+        : state.downloadMethod;
 
       if (
         !url ||
@@ -209,13 +217,23 @@ chrome.runtime.onMessage.addListener((message, sender) => {
         return;
       }
 
+      state.downloadMethod = requestedMethod;
       state.downloadResolveUrl = url;
       await saveState(state);
+
+      const methodLabel =
+        requestedMethod === 'gateway'
+          ? 'Gateway'
+          : requestedMethod === 'manual-urlgrab'
+            ? 'Manual URL Grab'
+            : requestedMethod === 'manual'
+              ? 'Manual'
+              : 'Vortex';
 
       await log(
         state,
         'Navigating queue tab to ' +
-          (state.downloadMethod === 'manual' ? 'Manual' : 'Vortex') +
+          methodLabel +
           ' URL: ' +
           url
       );
@@ -302,6 +320,16 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
     if (message.type === 'DOWNLOAD_STARTED') {
       if (!state.running || state.downloadWaiting) {
+        return;
+      }
+
+      if (state.downloadMethod === 'gateway' || state.downloadMethod === 'manual-urlgrab') {
+        await log(
+          state,
+          'Ignoring native download completion in ' +
+            (state.downloadMethod === 'gateway' ? 'Gateway' : 'Manual URL Grab') +
+            ' mode; waiting for captured nxm:// URL'
+        );
         return;
       }
 
