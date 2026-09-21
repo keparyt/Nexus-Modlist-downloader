@@ -45,9 +45,17 @@ async function refresh() {
 
   if (state.running) {
     const current = Math.min((state.index || 0) + 1, (state.urls || []).length);
+    const methodLabel =
+      state.downloadMethod === 'gateway'
+        ? 'Gateway'
+        : state.downloadMethod === 'manual-urlgrab'
+          ? 'Manual URL Grab'
+          : state.downloadMethod === 'manual'
+            ? 'Manual'
+            : 'Vortex';
     $('status').textContent = state.downloadWaiting
-      ? 'Waiting 10s - ' + current + '/' + state.urls.length
-      : 'Running - ' + current + '/' + state.urls.length;
+      ? 'Waiting 10s - ' + methodLabel + ' - ' + current + '/' + state.urls.length
+      : 'Running - ' + methodLabel + ' - ' + current + '/' + state.urls.length;
   } else {
     $('status').textContent = state.index >= state.urls.length && state.urls.length
       ? 'Completed'
