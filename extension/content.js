@@ -171,39 +171,7 @@
     return null;
   };
 
-  const getFinalDownloadUrl = component => {
-    if (!component) return '';
-
-    const candidates = [
-      component.getAttribute('download-url'),
-      component.downloadUrl,
-      component.downloadURL,
-      component.dataset?.downloadUrl,
-      component.file?.downloadUrl,
-      component.file?.downloadURL
-    ];
-
-    for (const value of candidates) {
-      const url = String(value || '').trim();
-      if (/^nxm:\/\//i.test(url)) return url;
-    }
-
-    return '';
-  };
-
-  const getDownloadUrlState = component => {
-    if (!component) return '';
-    return String(
-      component.getAttribute('download-url') ||
-      component.downloadUrl ||
-      component.downloadURL ||
-      component.dataset?.downloadUrl ||
-      component.file?.downloadUrl ||
-      component.file?.downloadURL ||
-      ''
-    ).trim();
-  };
-  const clickAction = el => {
+  const normalizeNxmUrl = value => {,    const text = String(value || '').trim();,    return /^nxm:\/\//i.test(text) ? text : '';,  };,,  const findNxmUrl = component => {,    if (!component) return '';,,    const direct = [,      component.getAttribute('download-url'),,      component.downloadUrl,,      component.downloadURL,,      component.dataset?.downloadUrl,,      component.file?.downloadUrl,,      component.file?.downloadURL,    ];,,    for (const value of direct) {,      const url = normalizeNxmUrl(value);,      if (url) return url;,    },,    for (const { root } of allRoots(component, 'mod-file-download')) {,      let nodes = [];,      try { nodes = [root, ...root.querySelectorAll('*')]; } catch {},,      for (const node of nodes) {,        try {,          for (const name of node.getAttributeNames?.() || []) {,            const url = normalizeNxmUrl(node.getAttribute(name));,            if (url) return url;,          },        } catch {},,        const props = [,          node.downloadUrl,,          node.downloadURL,,          node.fileUri,,          node.fileURI,,          node.file?.downloadUrl,,          node.file?.downloadURL,        ];,,        for (const value of props) {,          const url = normalizeNxmUrl(value);,          if (url) return url;,        },      },    },,    return '';,  };,  const clickAction = el => {
     debug('Attempting action click');
     try { el.scrollIntoView({ block: 'center', inline: 'center' }); } catch {}
     try { el.focus?.(); } catch {}
@@ -265,35 +233,29 @@
       if (component && !loggedComponent) {
         loggedComponent = true;
         debug(`mod-file-download found: filename="${component.getAttribute('filename') || ''}" file-id="${component.getAttribute('file-id') || ''}" is-nmm-download="${component.getAttribute('is-nmm-download') || ''}"`);
-        debug(`initial download-url="${getDownloadUrlState(component)}"`);
-      }
-
-      if (component && (downloadMethod === 'manual-urlgrab' || downloadMethod === 'gateway')) {
-        const finalUrl = getFinalDownloadUrl(component);
-
-        if (finalUrl) {
-          debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} found final nxm URL: ${finalUrl}`);
-          chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url: finalUrl }).catch(() => {});
-          busy = false;
-          return;
-        }
-
-        const currentUrl = getDownloadUrlState(component);
-        if (scans === 1 || scans % 10 === 0) {
-          debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} waiting for real nxm URL; current download-url="${currentUrl}"`);
-        }
+        debug(`download-url="${component.getAttribute('download-url') || ''}"`);
       }
 
       const button = findSlowDownload();
-      if (button && downloadMethod !== 'manual-urlgrab' && downloadMethod !== 'gateway') {
-        if (clickSlow(button)) {
+      if (button) {
+        if (downloadMethod === 'manual-urlgrab' || downloadMethod === 'gateway') {
+          const componentUrl = findNxmUrl(component);
+          if (componentUrl) {
+            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} found final download URL: ${componentUrl}`);
+            chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url: componentUrl }).catch(() => {});
+            busy = false;
+            return;
+          }
+
+          const rawUrl = component?.getAttribute('download-url') || '';
+          debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'}: Slow Download is visible; waiting for nxm:// URL (current value: ${rawUrl})`);
+        } else if (clickSlow(button)) {
           debug('Slow Download click sent; notifying background');
           chrome.runtime.sendMessage({ type: 'DOWNLOAD_STARTED' }).catch(() => {});
           busy = false;
           return;
         }
       }
-
       if (scans === 1 || scans % 10 === 0)
         debug(`Slow Download scan=${scans}; component=${!!component}; url=${location.href}`);
 
