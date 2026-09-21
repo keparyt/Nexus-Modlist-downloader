@@ -2,6 +2,28 @@
 
 A standalone local gateway/downloader for the Nexus Modlist Downloader extension.
 
+## Python virtual environment
+
+The gateway uses a local Python virtual environment at:
+
+```text
+.venv\
+```
+
+Run `setup_venv.bat` to create it manually, or simply run `run.bat`; it automatically creates the environment using:
+
+```bat
+python -m venv .venv
+```
+
+The launcher always starts the gateway with `.venv\Scripts\python.exe`.
+
+## Start
+
+```bat
+run.bat
+```
+
 ## Features
 
 - Accepts captured `nxm://...` URLs from the Chrome extension.
@@ -9,43 +31,11 @@ A standalone local gateway/downloader for the Nexus Modlist Downloader extension
 - Reads `urls.txt` when requested.
 - Converts Nexus `nxm://...` URLs to HTTPS download requests.
 - Downloads archives using the filename supplied by Nexus / Content-Disposition.
-- Configurable download folder.
-- Configurable gateway host/port.
-- Auto-download on URL receive can be enabled/disabled.
-- Sequential download queue.
-- Duplicate protection.
-- Download history and live activity log.
-- Start/stop queue controls.
-- Settings are stored in `settings.json`.
+- Configurable download folder, host, port, timeout, and auto-download mode.
+- Sequential queue, duplicate protection, history, and live activity log.
 
-## Start
-
-Run:
-
-```bat
-run.bat
-```
-
-Or:
-
-```bat
-python gateway.py
-```
-
-The GUI starts the HTTP gateway automatically.
-
-Default endpoint:
-
-`http://127.0.0.1:8765`
-
-## urls.txt
-
-Put one captured `nxm://...` URL per line.
-
-The GUI has **Load urls.txt** and **Download list** controls.
+Default endpoint: `http://127.0.0.1:8765`
 
 ## Extension
 
 Select **Gateway** as the fourth download method. Captured URLs are sent to the local gateway.
-
-The extension does not need the gateway to be running to scan; if it is unavailable, the extension records the error in its log and continues.
