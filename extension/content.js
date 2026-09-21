@@ -300,18 +300,9 @@
       .replace(/\\u0026/g, '&');
 
     try {
-      const json = JSON.parse(raw);
-      const candidates = [
-        json?.downloadUrl,
-        json?.url,
-        json?.vortexDownloadUrl,
-        json?.nmmDownloadUrl,
-        json?.data?.url
-      ];
-      for (const value of candidates) {
-        const url = normalizeNxmUrl(value);
-        if (url) return url;
-      }
+      const data = JSON.parse(raw);
+      const url = normalizeNxmUrl(data?.url || data?.downloadUrl || data?.downloadURL);
+      if (url) return url;
     } catch {}
 
     const match = raw.match(/nxm:\/\/[^\s"'<>]+/i);
@@ -327,13 +318,9 @@
       return '';
     }
 
-    const body = new URLSearchParams();
-    body.set('fid', fileId);
-    body.set('game_id', gameId);
-    body.set('nmm', '1');
-
     try {
       debug(`Gateway requesting Nexus GenerateDownloadUrl for file-id=${fileId}, game-id=${gameId}`);
+
       const response = await fetch('/Core/Libs/Common/Managers/Downloads?GenerateDownloadUrl', {
         method: 'POST',
         credentials: 'include',
@@ -341,14 +328,19 @@
           'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
           'X-Requested-With': 'XMLHttpRequest'
         },
-        body: body.toString()
+        body: new URLSearchParams({
+          fid: fileId,
+          game_id: gameId
+        }).toString()
       });
 
       const text = await response.text().catch(() => '');
       const nxm = parseNxmFromResponse(text);
+
       if (nxm) return nxm;
 
-      debug(`Gateway GenerateDownloadUrl returned status=${response.status} without a usable nxm:// URL`);
+      debug(`Gateway GenerateDownloadUrl returned status=${response.status} without nxm:// URL`);
+      debug(`Gateway GenerateDownloadUrl response: ${text.slice(0, 300)}`);
     } catch (error) {
       debug(`Gateway GenerateDownloadUrl request failed: ${error.message}`);
     }
@@ -357,22 +349,7 @@
   };
 
   async function interceptSlowDownload(button, component) {
-    if (!button || button.dataset.nexusGatewayIntercepted === '1') return;
-
-    button.dataset.nexusGatewayIntercepted = '1';
-
-    button.addEventListener('click', event => {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    }, true);
-
-    debug('Attempting Slow Download click');
-    try {
-      button.click();
-      debug('Slow Download click intercepted; native nxm:// launch is blocked');
-    } catch (error) {
-      debug(`Slow Download click dispatch failed: ${error.message}`);
-    }
+    if (!button) return false;
 
     const componentUrlBefore = findNxmUrl(component);
     if (componentUrlBefore) {
@@ -381,6 +358,12 @@
       busy = false;
       return true;
     }
+
+    // The Nexus button ultimately calls GenerateDownloadUrl and then hands the
+    // resulting nxm:// URL to the OS. For Gateway we perform that same server
+    // request directly so the OS protocol handler is never invoked.
+    debug('Attempting Slow Download click');
+    debug('Slow Download action intercepted for Gateway URL capture; native nxm:// launch blocked');
 
     const url = await resolveSlowDownloadFromPage(component);
     if (url) {
@@ -392,7 +375,6 @@
 
     return false;
   };
-
   async function handleDownloadPage(reason = 'detected') {
     if (downloadMode) return;
     downloadMode = true;
