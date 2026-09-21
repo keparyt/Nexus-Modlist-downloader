@@ -25,10 +25,19 @@
         "https://www.nexusmods.com/*"
       ],
       "js": [
-        "page_bridge.js",
+        "page_bridge.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://www.nexusmods.com/*"
+      ],
+      "js": [
         "content.js"
       ],
-      "run_at": "document_start"
+      "run_at": "document_idle"
     }
   ]
 }
