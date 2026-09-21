@@ -358,7 +358,7 @@ chrome.webRequest.onBeforeRedirect.addListener(
 
       try {
         await chrome.tabs.sendMessage(details.tabId, {
-          type: 'CAPTURE_URL',
+          type: 'CAPTURE_URL_FROM_NETWORK',
           url: details.redirectUrl
         });
       } catch (error) {
