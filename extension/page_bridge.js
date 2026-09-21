@@ -51,10 +51,20 @@
   const findSlowInPath = path => {
     for (const node of path || []) {
       const text = String(node?.textContent || '').trim().toLowerCase();
+      const label = String(
+        node?.getAttribute?.('aria-label') ||
+        node?.getAttribute?.('title') ||
+        node?.getAttribute?.('data-testid') ||
+        ''
+      ).toLowerCase();
+
       if (
         (node?.tagName?.toLowerCase?.() === 'button' ||
-          node?.getAttribute?.('role') === 'button') &&
-        text.includes('slow download')
+          node?.getAttribute?.('role') === 'button' ||
+          node?.tagName?.toLowerCase?.() === 'a') &&
+        (text.includes('slow download') ||
+          label.includes('slow download') ||
+          label.includes('slow_download'))
       ) {
         return node;
       }
@@ -78,36 +88,62 @@
     try {
       post('SLOW_CLICK_ACCEPTED', { fileId, gameId });
 
+      const body = `fid=${encodeURIComponent(fileId)}&game_id=${encodeURIComponent(gameId)}`;
+
       const response = await fetch(
         '/Core/Libs/Common/Managers/Downloads?GenerateDownloadUrl',
         {
           method: 'POST',
-          credentials: 'include',
+          credentials: 'same-origin',
           cache: 'no-store',
           headers: {
-            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'X-Requested-With': 'XMLHttpRequest',
-            'Accept': 'application/json, text/plain, */*'
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
           },
-          body: new URLSearchParams({
-            fid: fileId,
-            game_id: gameId
-          }).toString()
+          body
         }
       );
 
-      const text = await response.text().catch(() => '');
-      const url = parseResponse(text);
-
+      const text = await response.text();
       post('GENERATE_RESPONSE', {
         status: response.status,
-        responsePreview: text.slice(0, 300)
+        responsePreview: text.slice(0, 500)
       });
+
+      if (!response.ok) {
+        post('NXM_ERROR', {
+          error: `GenerateDownloadUrl HTTP ${response.status}`,
+          responsePreview: text.slice(0, 500)
+        });
+        return;
+      }
+
+      let data = null;
+      try {
+        data = JSON.parse(text);
+      } catch {}
+
+      const candidates = [
+        data?.url,
+        data?.downloadUrl,
+        data?.downloadURL
+      ];
+
+      let url = '';
+      for (const value of candidates) {
+        url = normalizeNxm(value);
+        if (url) break;
+      }
+
+      if (!url) {
+        const match = text
+          .replace(/&amp;/g, '&')
+          .match(/nxm:\/\/[^\s"'<>]+/i);
+        url = match ? normalizeNxm(match[0]) : '';
+      }
 
       if (!url) {
         post('NXM_ERROR', {
           error: 'GenerateDownloadUrl returned no nxm:// URL',
-          status: response.status,
           responsePreview: text.slice(0, 500)
         });
         return;
@@ -119,7 +155,7 @@
         error: error.message
       });
     }
-  }
+  };
 
   window.addEventListener('message', event => {
     if (event.source !== window || !event.data) return;
