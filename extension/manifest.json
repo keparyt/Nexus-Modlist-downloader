@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Nexus Modlist Sequential Downloader",
-  "version": "2.3.1",
+  "version": "2.4.0",
   "description": "Sequentially processes Nexus Mods mod pages using Vortex, Manual, URL Grab, or the local Gateway downloader.",
   "permissions": [
     "storage",
-    "tabs"
+    "tabs",
+    "webRequest"
   ],
   "host_permissions": [
     "https://www.nexusmods.com/*",
