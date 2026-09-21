@@ -1,68 +1,160 @@
-# Nexus Modlist Sequential Downloader
+# Chrome Extension — Nexus Modlist Downloader
 
-Chrome Manifest V3 extension for processing a Nexus Mods URL list sequentially.
+This directory contains the Chrome Manifest V3 extension.
 
-## Automation flow
+For the full project architecture, state machine, Gateway protocol, Nexus DOM model, debugging rules, and agent instructions, read the repository root `README.md`.
 
-For each mod URL:
+## Files
 
-1. Open the Nexus Mods mod page.
-2. Wait 3 seconds.
-3. Find the page's `<mod-download-modal>`.
-4. Read its `file` attribute.
-5. Extract the exact `vortexDownloadUrl`, for example:
-   `https://www.nexusmods.com/api/files/29059748724959/download?nmm=1`
-6. Inspect the modal's normal DOM and shadow DOM for its real **Download** control.
-7. Click that control when available.
-8. If Nexus does not expose a rendered Download control, navigate to the exact `vortexDownloadUrl` exposed by the modal.
-9. On the resulting download page, find **Slow download**, preferably inside `#upsell-cards`.
-10. Click **Slow download**.
-11. Wait 10 seconds.
-12. Move to the next mod URL.
+```text
+manifest.json      MV3 manifest, permissions, content-script worlds
+background.js      queue state machine, popup messages, Gateway forwarding
+content.js         isolated-world Nexus DOM automation
+page_bridge.js     MAIN-world Nexus interaction/capture bridge
+popup.html         extension UI
+popup.js           popup state, start/stop, captured URL display
+popup.css          popup styling
+```
 
-## Slow download detection
+## Execution worlds
 
-The redirected Nexus page is handled through its `<mod-file-download>` web component. The extension recursively inspects that component's Shadow DOM and waits up to 60 seconds for the rendered **Slow download** control. It supports buttons, links, role buttons, and component parts whose text or accessibility attributes identify Slow download.
+Two content-script worlds are intentional.
 
-## Why the modal is used
+### MAIN world
 
-The extension no longer depends on finding a generic visible element whose text happens to say **Vortex**. Nexus exposes the file information directly on:
+`page_bridge.js`
 
-`<mod-download-modal file="...">`
+Runs at:
 
-The JSON in that attribute contains `vortexDownloadUrl`, making the automation substantially more deterministic.
+```text
+document_start
+world: MAIN
+```
 
-The extension also recursively inspects shadow DOM because `mod-download-modal` can render its buttons outside the normal light DOM.
+Use it for page-side Nexus behavior that must interact with the page's own JavaScript/event system.
 
-## Debugging
+### Isolated world
 
-Open Chrome DevTools on the Nexus page and look for:
+`content.js`
 
-`[Nexus Modlist Downloader]`
+Runs at:
 
-The extension logs:
+```text
+document_idle
+```
 
-- queue state
-- selected mod-download-modal
-- mod/file name and UID
-- exact Vortex download URL
-- shadow-DOM search paths
-- Download candidates
-- selected Download control
-- Slow download detection
-- 10-second queue delay
-- timeouts and errors
+Use it for extension logic, DOM discovery, Shadow DOM traversal, logging, and messaging the MV3 service worker.
 
-The popup also displays the latest queue log.
+Do not collapse these into one script without understanding the execution-world consequences.
 
-## Install / update
+## Current Gateway capture design
+
+Gateway/Manual URL Grab must capture the final:
+
+```text
+nxm://...
+```
+
+without opening the native `nxm://` protocol handler.
+
+The intended sequence is:
+
+```text
+mod-download-modal
+    ↓
+Manual action
+    ↓
+Nexus download page
+    ↓
+mod-file-download
+    ↓
+Slow Download action
+    ↓
+capture generated nxm://
+    ↓
+CAPTURE_URL
+    ↓
+background capturedUrls
+    ↓
+Gateway POST /api/url
+```
+
+The bridge knows the Nexus file and game IDs from:
+
+```html
+<mod-file-download
+  file-id="223"
+  game-id="6766">
+```
+
+and uses Nexus' download-generation request:
+
+```text
+/Core/Libs/Common/Managers/Downloads?GenerateDownloadUrl
+```
+
+with:
+
+```text
+fid=<file-id>
+game_id=<game-id>
+```
+
+The returned `nxm://` URL is passed to the extension through `window.postMessage`.
+
+## Important values
+
+Do not treat:
+
+```text
+#ERROR-download-location-not-found
+```
+
+as a valid download URL.
+
+The only useful capture target for Gateway/URL Grab is a real:
+
+```text
+nxm://...
+```
+
+URL.
+
+## Development
+
+After editing extension files:
 
 1. Open `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Choose **Load unpacked**.
-4. Select the repository's `extension` folder.
-5. After changing extension files, click **Reload** for the extension.
-6. Open the extension popup and paste a JSON array or one Nexus mod URL per line.
-7. Click **Start**.
+2. Reload the unpacked extension.
+3. Reload the Nexus tab.
+4. Start a small test queue first.
+5. Watch the extension popup log and the Nexus DevTools console.
 
-The extension uses the existing logged-in Nexus Mods browser session. It does not bypass CAPTCHA, login, rate limits, or other security controls.
+Useful log markers:
+
+```text
+Download method: ...
+FOUND Slow Download ...
+SLOW_CLICK_INTERCEPTED
+SLOW_CLICK_ACCEPTED
+GENERATE_RESPONSE
+NXM_CAPTURED
+Captured download URL
+Sent URL to gateway
+```
+
+If the first missing marker is:
+
+```text
+FOUND Slow Download
+```
+
+debug Shadow DOM discovery.
+
+If `FOUND Slow Download` exists but `SLOW_CLICK_INTERCEPTED` does not, debug `page_bridge.js`/MAIN-world execution.
+
+If `NXM_CAPTURED` never appears, debug the Nexus download-generation request and response.
+
+If `Captured download URL` appears but `Sent URL to gateway` does not, debug `background.js`.
+
+If `Sent URL to gateway` appears but the Gateway GUI does not show the URL, debug `gateway/gateway.py`.
