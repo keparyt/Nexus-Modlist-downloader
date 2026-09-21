@@ -4,21 +4,20 @@ const example = [
   100, 95, 93, 92, 89, 87, 86, 79, 76, 51,
   229, 228, 220, 219, 215, 216, 217, 210, 201, 178,
   177, 163, 140, 138, 131, 120, 119, 117, 115, 101
-].map(id => `https://www.nexusmods.com/supermarkettogether/mods/${id}`);
+].map(id => 'https://www.nexusmods.com/supermarkettogether/mods/' + id);
 
 function parse(raw) {
-  const value = raw.trim();
+  const value = String(raw || '').trim();
   if (!value) return [];
 
   try {
     const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) return parsed;
-  } catch {}
+    if (Array.isArray(parsed)) return parsed.map(String);
+  } catch (error) {
+    console.debug('Input is not JSON; using line parsing.');
+  }
 
-  return value
-    .split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(Boolean);
+  return value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
 }
 
 function validNexusUrl(url) {
@@ -27,13 +26,14 @@ function validNexusUrl(url) {
     return parsed.protocol === 'https:' &&
       parsed.hostname === 'www.nexusmods.com' &&
       /\/mods\/\d+/i.test(parsed.pathname);
-  } catch {
+  } catch (error) {
     return false;
   }
 }
 
 async function refresh() {
-  const { nexusQueueState: state } = await chrome.storage.local.get('nexusQueueState');
+  const result = await chrome.storage.local.get('nexusQueueState');
+  const state = result.nexusQueueState;
 
   if (!state) {
     $('status').textContent = 'Idle';
@@ -44,17 +44,17 @@ async function refresh() {
   }
 
   if (state.running) {
-    const current = Math.min(state.index + 1, state.urls.length);
+    const current = Math.min((state.index || 0) + 1, (state.urls || []).length);
     $('status').textContent = state.downloadWaiting
-      ? `Waiting 10s · ${current}/${state.urls.length}`
-      : `Running · ${current}/${state.urls.length}`;
+      ? 'Waiting 10s - ' + current + '/' + state.urls.length
+      : 'Running - ' + current + '/' + state.urls.length;
   } else {
     $('status').textContent = state.index >= state.urls.length && state.urls.length
       ? 'Completed'
       : 'Idle / Stopped';
   }
 
-  $('count').textContent = `${state.urls?.length || 0} URL(s)`;
+  $('count').textContent = (state.urls || []).length + ' URL(s)';
   $('captured').value = (state.capturedUrls || []).join('\n');
   $('log').textContent = (state.log || []).join('\n');
   $('log').scrollTop = $('log').scrollHeight;
@@ -62,6 +62,7 @@ async function refresh() {
 
 $('load').addEventListener('click', async () => {
   $('list').value = JSON.stringify(example, null, 2);
+  $('status').textContent = 'Example list loaded';
   await refresh();
 });
 
@@ -75,24 +76,36 @@ $('start').addEventListener('click', async () => {
     return;
   }
 
-  const gatewayUrl = $('gatewayUrl').value.trim();
+  const gatewayUrl = $('gatewayUrl').value.trim() || 'http://127.0.0.1:8765';
   await chrome.storage.local.set({ nexusGatewayUrl: gatewayUrl });
-  await chrome.runtime.sendMessage({
-    type: 'START',
-    urls,
-    downloadMethod: $('method').value,
-    gatewayUrl
-  });
 
-  if (rejected) {
-    $('status').textContent = `Started ${urls.length}; ignored ${rejected} invalid URL(s)`;
+  try {
+    await chrome.runtime.sendMessage({
+      type: 'START',
+      urls: urls,
+      downloadMethod: $('method').value,
+      gatewayUrl: gatewayUrl
+    });
+    $('status').textContent = 'Starting ' + urls.length + ' URL(s)';
+  } catch (error) {
+    $('status').textContent = 'Start failed: ' + error.message;
+    console.error(error);
   }
 
+  if (rejected) {
+    $('status').textContent += ' - ignored ' + rejected + ' invalid URL(s)';
+  }
   await refresh();
 });
 
 $('stop').addEventListener('click', async () => {
-  await chrome.runtime.sendMessage({ type: 'STOP' });
+  try {
+    await chrome.runtime.sendMessage({ type: 'STOP' });
+    $('status').textContent = 'Stopped';
+  } catch (error) {
+    $('status').textContent = 'Stop failed: ' + error.message;
+    console.error(error);
+  }
   await refresh();
 });
 
@@ -101,17 +114,22 @@ chrome.storage.local.get('nexusGatewayUrl', data => {
 });
 
 $('gatewayUrl').addEventListener('change', () => {
-  chrome.storage.local.set({ nexusGatewayUrl: $('gatewayUrl').value.trim() });
+  chrome.storage.local.set({
+    nexusGatewayUrl: $('gatewayUrl').value.trim() || 'http://127.0.0.1:8765'
+  });
 });
 
 $('copyCaptured').addEventListener('click', async () => {
-  const { nexusQueueState: state } = await chrome.storage.local.get('nexusQueueState');
-  const urls = (state?.capturedUrls || []).join('\n');
+  const result = await chrome.storage.local.get('nexusQueueState');
+  const urls = (result.nexusQueueState?.capturedUrls || []).join('\n');
   if (!urls) return;
   await navigator.clipboard.writeText(urls);
   $('copyCaptured').textContent = 'Copied';
-  setTimeout(() => $('copyCaptured').textContent = 'Copy captured URLs', 1200);
+  setTimeout(() => { $('copyCaptured').textContent = 'Copy captured URLs'; }, 1200);
 });
 
-refresh();
-setInterval(refresh, 500);
+refresh().catch(error => {
+  $('status').textContent = 'Popup error: ' + error.message;
+  console.error(error);
+});
+setInterval(() => refresh().catch(console.error), 500);
