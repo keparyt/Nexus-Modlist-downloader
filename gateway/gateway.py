@@ -4,6 +4,7 @@ import json
 import queue
 import threading
 import time
+import urllib.error
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -53,6 +54,7 @@ class GatewayApp:
         self.root.geometry("900x680")
         self.root.minsize(760, 560)
 
+        self.running = True
         self.settings = load_settings()
         self.jobs = queue.Queue(maxsize=int(self.settings["max_queue_size"]))
         self.seen = set()
@@ -61,7 +63,6 @@ class GatewayApp:
         self.server_thread = None
         self.worker_thread = threading.Thread(target=self.worker, daemon=True)
         self.worker_thread.start()
-        self.running = True
 
         self.host_var = tk.StringVar(value=self.settings["host"])
         self.port_var = tk.StringVar(value=str(self.settings["port"]))
@@ -145,15 +146,12 @@ class GatewayApp:
             self.folder_var.set(folder)
 
     def settings_from_ui(self):
-        try:
-            port = int(self.port_var.get())
-            timeout = int(self.timeout_var.get())
-            if not 1 <= port <= 65535:
-                raise ValueError("Port must be 1-65535")
-            if timeout < 1:
-                raise ValueError("Timeout must be positive")
-        except ValueError as exc:
-            raise ValueError(str(exc))
+        port = int(self.port_var.get())
+        timeout = int(self.timeout_var.get())
+        if not 1 <= port <= 65535:
+            raise ValueError("Port must be 1-65535")
+        if timeout < 1:
+            raise ValueError("Timeout must be positive")
         return {
             "host": self.host_var.get().strip() or "127.0.0.1",
             "port": port,
@@ -169,7 +167,7 @@ class GatewayApp:
     def apply_settings(self):
         try:
             new_settings = self.settings_from_ui()
-        except ValueError as exc:
+        except (ValueError, TypeError) as exc:
             messagebox.showerror("Invalid settings", str(exc))
             return
         self.settings = new_settings
@@ -259,10 +257,7 @@ class GatewayApp:
 
         auto = bool(self.settings["auto_download"])
         self.log(f"Received URL: {url}")
-        if auto:
-            self.log("Queued for automatic download")
-        else:
-            self.log("Queued; auto-download is disabled")
+        self.log("Queued for automatic download" if auto else "Queued; auto-download is disabled")
         return {"ok": True, "queued": True, "auto_download": auto}
 
     def add_pasted(self, start=False):
