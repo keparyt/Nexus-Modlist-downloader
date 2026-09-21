@@ -292,89 +292,6 @@
     }
   };
 
-  const parseNxmFromResponse = text => {
-    if (!text) return '';
-    const raw = String(text)
-      .replace(/&amp;/g, '&')
-      .replace(/\\\//g, '/')
-      .replace(/\\u0026/g, '&');
-
-    try {
-      const data = JSON.parse(raw);
-      const url = normalizeNxmUrl(data?.url || data?.downloadUrl || data?.downloadURL);
-      if (url) return url;
-    } catch {}
-
-    const match = raw.match(/nxm:\/\/[^\s"'<>]+/i);
-    return match ? normalizeNxmUrl(match[0]) : '';
-  };
-
-  async function resolveSlowDownloadFromPage(component) {
-    const fileId = component?.getAttribute('file-id') || '';
-    const gameId = component?.getAttribute('game-id') || '';
-
-    if (!fileId || !gameId) {
-      debug(`Gateway cannot resolve Slow Download: file-id="${fileId}" game-id="${gameId}"`);
-      return '';
-    }
-
-    try {
-      debug(`Gateway requesting Nexus GenerateDownloadUrl for file-id=${fileId}, game-id=${gameId}`);
-
-      const response = await fetch('/Core/Libs/Common/Managers/Downloads?GenerateDownloadUrl', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: new URLSearchParams({
-          fid: fileId,
-          game_id: gameId
-        }).toString()
-      });
-
-      const text = await response.text().catch(() => '');
-      const nxm = parseNxmFromResponse(text);
-
-      if (nxm) return nxm;
-
-      debug(`Gateway GenerateDownloadUrl returned status=${response.status} without nxm:// URL`);
-      debug(`Gateway GenerateDownloadUrl response: ${text.slice(0, 300)}`);
-    } catch (error) {
-      debug(`Gateway GenerateDownloadUrl request failed: ${error.message}`);
-    }
-
-    return '';
-  };
-
-  async function interceptSlowDownload(button, component) {
-    if (!button) return false;
-
-    const componentUrlBefore = findNxmUrl(component);
-    if (componentUrlBefore) {
-      debug(`Gateway captured existing nxm:// URL: ${componentUrlBefore}`);
-      chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url: componentUrlBefore }).catch(() => {});
-      busy = false;
-      return true;
-    }
-
-    // The Nexus button ultimately calls GenerateDownloadUrl and then hands the
-    // resulting nxm:// URL to the OS. For Gateway we perform that same server
-    // request directly so the OS protocol handler is never invoked.
-    debug('Attempting Slow Download click');
-    debug('Slow Download action intercepted for Gateway URL capture; native nxm:// launch blocked');
-
-    const url = await resolveSlowDownloadFromPage(component);
-    if (url) {
-      debug(`Gateway captured generated nxm:// URL: ${url}`);
-      chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url }).catch(() => {});
-      busy = false;
-      return true;
-    }
-
-    return false;
-  };
   async function handleDownloadPage(reason = 'detected') {
     if (downloadMode) return;
     downloadMode = true;
@@ -400,24 +317,19 @@
         if (downloadMethod === 'manual-urlgrab' || downloadMethod === 'gateway') {
           if (!button.dataset.nexusGatewayClickStarted) {
             button.dataset.nexusGatewayClickStarted = '1';
+            debug('Attempting Slow Download click');
 
-            const intercepted = await interceptSlowDownload(button, component);
-            if (intercepted) return;
-
-            delete button.dataset.nexusGatewayClickStarted;
-            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} could not resolve nxm:// yet; will retry`);
-          }
-
-          const componentUrl = findNxmUrl(component);
-          if (componentUrl) {
-            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} captured nxm:// URL from Nexus: ${componentUrl}`);
-            chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url: componentUrl }).catch(() => {});
-            busy = false;
-            return;
+            try {
+              button.click();
+              debug('Slow Download click dispatched to Nexus page bridge');
+            } catch (error) {
+              delete button.dataset.nexusGatewayClickStarted;
+              debug(`Slow Download click failed: ${error.message}`);
+            }
           }
 
           if (scans === 1 || scans % 5 === 0) {
-            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} waiting for generated nxm:// URL`);
+            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} waiting for bridge-generated nxm:// URL`);
           }
         } else if (clickSlow(button)) {
           debug('Slow Download click sent; notifying background');
@@ -527,6 +439,7 @@
     downloadMethod = ['vortex', 'manual', 'manual-urlgrab', 'gateway'].includes(state.downloadMethod) ? state.downloadMethod : 'vortex';
     downloadResolveUrl = typeof state.downloadResolveUrl === 'string' ? state.downloadResolveUrl : '';
     debug(`Download method: ${downloadMethod}`);
+    window.postMessage({ source: 'NexusModlistDownloaderExtension', type: 'SET_MODE', mode: downloadMethod }, '*');
 
     if (isDownloadUrl()) {
       await handleDownloadPage('URL detected');
@@ -555,6 +468,46 @@
 
     debug(`Intercepted network NXM URL: ${url}`);
     chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url }).catch(() => {});
+  });
+
+  window.addEventListener('message', event => {
+    if (event.source !== window || !event.data) return;
+    if (event.data.source !== 'NexusModlistDownloaderBridge') return;
+
+    if (event.data.type === 'SLOW_CLICK_INTERCEPTED') {
+      debug(`Slow Download button click intercepted for capture (file-id=${event.data.fileId || ''}, game-id=${event.data.gameId || ''})`);
+      return;
+    }
+
+    if (event.data.type === 'SLOW_CLICK_ACCEPTED') {
+      debug(`Nexus GenerateDownloadUrl request started (file-id=${event.data.fileId || ''}, game-id=${event.data.gameId || ''})`);
+      return;
+    }
+
+    if (event.data.type === 'GENERATE_RESPONSE') {
+      debug(`Nexus GenerateDownloadUrl response status=${event.data.status}; preview=${event.data.responsePreview || ''}`);
+      return;
+    }
+
+    if (event.data.type === 'NXM_ERROR') {
+      debug(`Nexus NXM generation failed: ${event.data.error || 'unknown error'}`);
+      if (event.data.responsePreview) {
+        debug(`Nexus response: ${event.data.responsePreview}`);
+      }
+      return;
+    }
+
+    if (event.data.type === 'NXM_CAPTURED') {
+      const url = typeof event.data.url === 'string' ? event.data.url.trim() : '';
+      if (!/^nxm:\/\//i.test(url)) return;
+
+      debug(`Captured generated nxm:// URL: ${url}`);
+      chrome.runtime.sendMessage({
+        type: 'CAPTURE_URL',
+        url
+      }).catch(() => {});
+      busy = false;
+    }
   });
 
   chrome.storage.local.get(KEY, ({ nexusQueueState: state }) => {
