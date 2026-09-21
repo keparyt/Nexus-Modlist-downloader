@@ -171,6 +171,38 @@
     return null;
   };
 
+  const getFinalDownloadUrl = component => {
+    if (!component) return '';
+
+    const candidates = [
+      component.getAttribute('download-url'),
+      component.downloadUrl,
+      component.downloadURL,
+      component.dataset?.downloadUrl,
+      component.file?.downloadUrl,
+      component.file?.downloadURL
+    ];
+
+    for (const value of candidates) {
+      const url = String(value || '').trim();
+      if (/^nxm:\/\//i.test(url)) return url;
+    }
+
+    return '';
+  };
+
+  const getDownloadUrlState = component => {
+    if (!component) return '';
+    return String(
+      component.getAttribute('download-url') ||
+      component.downloadUrl ||
+      component.downloadURL ||
+      component.dataset?.downloadUrl ||
+      component.file?.downloadUrl ||
+      component.file?.downloadURL ||
+      ''
+    ).trim();
+  };
   const clickAction = el => {
     debug('Attempting action click');
     try { el.scrollIntoView({ block: 'center', inline: 'center' }); } catch {}
@@ -233,24 +265,28 @@
       if (component && !loggedComponent) {
         loggedComponent = true;
         debug(`mod-file-download found: filename="${component.getAttribute('filename') || ''}" file-id="${component.getAttribute('file-id') || ''}" is-nmm-download="${component.getAttribute('is-nmm-download') || ''}"`);
-        debug(`download-url="${component.getAttribute('download-url') || ''}"`);
+        debug(`initial download-url="${getDownloadUrlState(component)}"`);
+      }
+
+      if (component && (downloadMethod === 'manual-urlgrab' || downloadMethod === 'gateway')) {
+        const finalUrl = getFinalDownloadUrl(component);
+
+        if (finalUrl) {
+          debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} found final nxm URL: ${finalUrl}`);
+          chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url: finalUrl }).catch(() => {});
+          busy = false;
+          return;
+        }
+
+        const currentUrl = getDownloadUrlState(component);
+        if (scans === 1 || scans % 10 === 0) {
+          debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} waiting for real nxm URL; current download-url="${currentUrl}"`);
+        }
       }
 
       const button = findSlowDownload();
-      if (button) {
-        if (downloadMethod === 'manual-urlgrab' || downloadMethod === 'gateway') {
-          const componentUrl = component?.getAttribute('download-url') || '';
-          if (componentUrl) {
-            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} found final download URL: ${componentUrl}`);
-            // CAPTURE_URL atomically records the URL and starts the queue wait.
-            // Keeping this as one message prevents a race that could overwrite the
-            // captured URL with an older background state.
-            chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url: componentUrl }).catch(() => {});
-            busy = false;
-            return;
-          }
-          debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'}: Slow Download is visible but download-url is not available yet`);
-        } else if (clickSlow(button)) {
+      if (button && downloadMethod !== 'manual-urlgrab' && downloadMethod !== 'gateway') {
+        if (clickSlow(button)) {
           debug('Slow Download click sent; notifying background');
           chrome.runtime.sendMessage({ type: 'DOWNLOAD_STARTED' }).catch(() => {});
           busy = false;
