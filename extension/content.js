@@ -366,7 +366,13 @@
       event.stopImmediatePropagation();
     }, true);
 
-    debug('Gateway intercepted Slow Download click; native nxm:// launch is blocked');
+    debug('Attempting Slow Download click');
+    try {
+      button.click();
+      debug('Slow Download click intercepted; native nxm:// launch is blocked');
+    } catch (error) {
+      debug(`Slow Download click dispatch failed: ${error.message}`);
+    }
 
     const componentUrlBefore = findNxmUrl(component);
     if (componentUrlBefore) {
@@ -416,7 +422,8 @@
             const intercepted = await interceptSlowDownload(button, component);
             if (intercepted) return;
 
-            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} could not resolve nxm:// yet; continuing to poll`);
+            delete button.dataset.nexusGatewayClickStarted;
+            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} could not resolve nxm:// yet; will retry`);
           }
 
           const componentUrl = findNxmUrl(component);
