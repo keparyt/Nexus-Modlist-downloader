@@ -109,8 +109,15 @@ $('stop').addEventListener('click', async () => {
   await refresh();
 });
 
-chrome.storage.local.get('nexusGatewayUrl', data => {
+chrome.storage.local.get(['nexusGatewayUrl', 'nexusDownloadMethod'], data => {
   if (data.nexusGatewayUrl) $('gatewayUrl').value = data.nexusGatewayUrl;
+  if (data.nexusDownloadMethod && $('method').querySelector('option[value="' + data.nexusDownloadMethod + '"]')) {
+    $('method').value = data.nexusDownloadMethod;
+  }
+});
+
+$('method').addEventListener('change', () => {
+  chrome.storage.local.set({ nexusDownloadMethod: $('method').value });
 });
 
 $('gatewayUrl').addEventListener('change', () => {
