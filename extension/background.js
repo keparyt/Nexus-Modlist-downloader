@@ -244,7 +244,8 @@ chrome.runtime.onMessage.addListener((message, sender) => {
           ? message.url.trim()
           : '';
 
-      if (!url || !/^(?:nxm:\/\/|https:\/\/)/i.test(url)) {
+      if (!url || !/^nxm:\/\//i.test(url)) {
+        await log(state, 'Ignored non-NXM captured value: ' + url);
         return;
       }
 
