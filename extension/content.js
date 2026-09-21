@@ -5,6 +5,8 @@
   let busy = false;
   let downloadMode = false;
   let downloadMethod = 'vortex';
+  let downloadResolveUrl = '';
+  let captureResolveStarted = false;
   const norm = s => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -290,6 +292,55 @@
     }
   };
 
+  const extractNxmFromText = text => {
+    if (!text) return '';
+    const decoded = String(text)
+      .replace(/&amp;/g, '&')
+      .replace(/\\\//g, '/')
+      .replace(/\\u0026/g, '&');
+    const match = decoded.match(/nxm:\/\/[^\s"'<>]+/i);
+    return match ? normalizeNxmUrl(match[0]) : '';
+  };
+
+  async function resolveSlowDownloadUrl(component) {
+    if (!downloadResolveUrl) return '';
+
+    const target = downloadResolveUrl;
+    debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} resolving download URL without launching native downloader: ${target}`);
+
+    try {
+      const response = await fetch(target, {
+        method: 'GET',
+        credentials: 'include',
+        redirect: 'follow',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'application/json, text/plain, */*'
+        }
+      });
+
+      const text = await response.text().catch(() => '');
+      const candidates = [
+        extractNxmFromText(text),
+        response.url.startsWith('nxm://') ? response.url : ''
+      ];
+
+      for (const value of candidates) {
+        const url = normalizeNxmUrl(value);
+        if (url) return url;
+      }
+
+      const componentUrl = findNxmUrl(component);
+      if (componentUrl) return componentUrl;
+
+      debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} resolver response did not contain nxm:// yet (status=${response.status})`);
+    } catch (error) {
+      debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} resolver request ended without a readable response: ${error.message}`);
+    }
+
+    return '';
+  };
+
   async function handleDownloadPage(reason = 'detected') {
     if (downloadMode) return;
     downloadMode = true;
@@ -313,26 +364,21 @@
       const button = findSlowDownload();
       if (button) {
         if (downloadMethod === 'manual-urlgrab' || downloadMethod === 'gateway') {
-          if (!captureClickSent) {
-            if (clickSlow(button)) {
-              captureClickSent = true;
-              debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} Slow Download click sent; waiting for final nxm:// URL`);
-            } else {
-              debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} Slow Download click failed; retrying`);
+          if (!captureResolveStarted) {
+            captureResolveStarted = true;
+            const resolved = await resolveSlowDownloadUrl(component);
+            if (resolved) {
+              debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} captured final download URL: ${resolved}`);
+              chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url: resolved }).catch(() => {});
+              busy = false;
+              return;
             }
-          }
-
-          const componentUrl = findNxmUrl(component);
-          if (componentUrl) {
-            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} found final download URL: ${componentUrl}`);
-            chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url: componentUrl }).catch(() => {});
-            busy = false;
-            return;
+            captureResolveStarted = false;
           }
 
           const rawUrl = component?.getAttribute('download-url') || '';
           if (scans === 1 || scans % 5 === 0) {
-            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} waiting for nxm:// URL (current value: ${rawUrl})`);
+            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} waiting for captured nxm:// URL (component value: ${rawUrl})`);
           }
         } else if (clickSlow(button)) {
           debug('Slow Download click sent; notifying background');
