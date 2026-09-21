@@ -315,18 +315,9 @@
       const button = findSlowDownload();
       if (button) {
         if (downloadMethod === 'manual-urlgrab' || downloadMethod === 'gateway') {
-          if (!captureClickSent) {
-            if (clickSlow(button)) {
-              captureClickSent = true;
-              debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} Slow Download click sent; waiting for Nexus to expose nxm:// URL`);
-            } else {
-              debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} Slow Download click failed; retrying`);
-            }
-          }
-
           const componentUrl = findNxmUrl(component);
           if (componentUrl) {
-            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} captured final download URL: ${componentUrl}`);
+            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} captured existing nxm:// URL without opening it: ${componentUrl}`);
             chrome.runtime.sendMessage({ type: 'CAPTURE_URL', url: componentUrl }).catch(() => {});
             busy = false;
             return;
@@ -334,7 +325,7 @@
 
           const rawUrl = component?.getAttribute('download-url') || '';
           if (scans === 1 || scans % 5 === 0) {
-            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'} waiting for nxm:// URL (current value: ${rawUrl})`);
+            debug(`${downloadMethod === 'gateway' ? 'Gateway' : 'URL Grab'}: no nxm:// URL exposed; not clicking to avoid native download prompt (current value: ${rawUrl})`);
           }
         } else if (clickSlow(button)) {
           debug('Slow Download click sent; notifying background');
@@ -415,13 +406,15 @@
           ? selected.file.downloadUrl
           : selected.file.vortexDownloadUrl;
 
-        debug(`Exact ${['manual', 'manual-urlgrab', 'gateway'].includes(downloadMethod) ? 'Manual' : 'Vortex'} URL available: ${url}`);
-        debug(`Sending ${['manual', 'manual-urlgrab', 'gateway'].includes(downloadMethod) ? 'Manual' : 'Vortex'} URL to background for queue-tab navigation`);
+        const captureMode = downloadMethod === 'gateway' || downloadMethod === 'manual-urlgrab';
+
+        debug(`Exact ${captureMode ? (downloadMethod === 'gateway' ? 'Gateway' : 'Manual URL Grab') : (downloadMethod === 'manual' ? 'Manual' : 'Vortex')} URL available: ${url}`);
+
         chrome.runtime.sendMessage({
-          type: 'NAVIGATE_DOWNLOAD',
+          type: captureMode ? 'RESOLVE_DOWNLOAD' : 'NAVIGATE_DOWNLOAD',
           url,
           method: downloadMethod
-        }).catch(e => debug(`Navigation request failed: ${e.message}`));
+        }).catch(e => debug(`${captureMode ? 'Resolver' : 'Navigation'} request failed: ${e.message}`));
         return;
       }
 
