@@ -9,7 +9,8 @@ const DEFAULT_STATE = {
   downloadWaiting: false,
   downloadMethod: 'vortex',
   capturedUrls: [],
-  gatewayUrl: 'http://127.0.0.1:8765'
+  gatewayUrl: 'http://127.0.0.1:8765',
+  downloadResolveUrl: ''
 };
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -142,6 +143,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       state.tabId = null;
       state.log = [];
       state.downloadWaiting = false;
+      state.downloadResolveUrl = '';
 
       state.downloadMethod = [
         'vortex',
@@ -206,6 +208,9 @@ chrome.runtime.onMessage.addListener((message, sender) => {
         );
         return;
       }
+
+      state.downloadResolveUrl = url;
+      await saveState(state);
 
       await log(
         state,
@@ -287,6 +292,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       }
 
       latest.downloadWaiting = false;
+      latest.downloadResolveUrl = '';
       latest.index += 1;
 
       await saveState(latest);
@@ -329,6 +335,48 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
   return true;
 });
+
+chrome.webRequest.onBeforeRedirect.addListener(
+  details => {
+    if (!/^nxm:\/\//i.test(details.redirectUrl || '')) return;
+    (async () => {
+      const state = await getState();
+      if (
+        !state.running ||
+        state.tabId !== details.tabId ||
+        !['manual-urlgrab', 'gateway'].includes(state.downloadMethod) ||
+        state.downloadWaiting
+      ) {
+        return;
+      }
+
+      await log(
+        state,
+        'Intercepted NXM redirect before native downloader: ' +
+          details.redirectUrl
+      );
+
+      try {
+        await chrome.tabs.sendMessage(details.tabId, {
+          type: 'CAPTURE_URL',
+          url: details.redirectUrl
+        });
+      } catch (error) {
+        await log(
+          state,
+          'Could not forward intercepted NXM URL to content script: ' +
+            error.message
+        );
+      }
+    })().catch(error => {
+      console.error(
+        '[Nexus Modlist Downloader] NXM redirect handler error:',
+        error
+      );
+    });
+  },
+  { urls: ['https://www.nexusmods.com/api/files/*/download*'] }
+);
 
 chrome.tabs.onRemoved.addListener(async tabId => {
   const state = await getState();
